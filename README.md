@@ -1,11 +1,13 @@
-# DropBot
+
+<p align="center"><img src="https://cdn.discordapp.com/avatars/487298106849886224/11a7eff4af1922c251ccb371599c14a2.png"></p>
+<h1 align="center">DropBot</h1>
+
+## Description
 Automated Bot for Discord VoIP application and digital distribution platform. 
 
 Randomly selects a location to start in for the Fortnite Battle Royale game.
 
-### Requirements:
-* **Node.js 0.12.x** or greater
-* **ffmpeg/avconv** (needs to be added to PATH)
+Built using node.js and discord.io.`
 
 ### Usage instructions:
 ```
@@ -60,3 +62,7 @@ Example: To remove Happy Hamlet from the list, send message:
 Example: To set Snobby Shores to the max chance, send message:
   "db!setweight 17 10
   ```
+
+### Requirements:
+* **Node.js 0.12.x** or greater
+* **ffmpeg/avconv** (needs to be added to PATH)
