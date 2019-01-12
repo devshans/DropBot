@@ -851,7 +851,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 dropUserBlocked[userID]  = true;
                 updateUser(userID, epochTime, true);
             }
-            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked. Please contact developer steve@steveshannonofficial.com"];
+            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked. Please contact developer devshans0@gmail.com"];
             console.log("User max strikes: " + userID + " too many requests.");
             handleCommand(args, userID, channelID, guildID);
             return 3;
