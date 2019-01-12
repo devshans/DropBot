@@ -7,7 +7,9 @@ Automated Bot for Discord VoIP application and digital distribution platform.
 
 Randomly selects a location to start in for the Fortnite Battle Royale game.
 
-Built using node.js and discord.io.`
+Built using node.js and discord.io.
+
+Not intended to be hosted locally.
 
 ### Usage instructions:
 ```
