@@ -419,8 +419,8 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += 'Runs by sending \"db!\" message in a Discord server with DropBot active.\n';
         message += '   Will randomly choose a location in Fortnite to drop.\n\n';
         message += 'Optional features:\n';
-        message += 'usage: db![option] [argument] ...\n\n';
-        message += 'db![option]    Arguments\n';
+        message += 'usage: db![option]\n\n';
+        message += 'db![option]    Description\n';
         message += '-----------------------\n';
         message += 'db!            Randomly choose a Fortnite location to drop based on server settings.\n';        
         message += 'db!mute        Mutes DropBot audio in voice channel.\n';
@@ -631,7 +631,6 @@ async function handleCommand(args, userID, channelID, guildID) {
 
     // Note that this will only work if the message was sent in a guild
     // and the author is actually in a voice channel.
-    // You might want to check for all that stuff first
     // It also won't stop the existing command but will not play audio.
     case 's':        
     case 'stop':
@@ -657,6 +656,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         var dropLocationID = rwc(serverDropLocations[guildID]);;
         var dropChance;
 
+        //fixme - SPS. Time out or guarantee that we won't get stuck in this loop.
         while (serverDropLocations[guildID][dropLocationID]           === undefined ||
                serverDropLocations[guildID][dropLocationID]['weight'] === undefined ||
                serverDropLocations[guildID][dropLocationID]['weight'] <= 0) {
@@ -823,7 +823,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         console.log("Time (ms)  : ", epochTime);
     }
 
-    var args = message.toLowerCase().split(' ');
+    message = message.toLowerCase();
+    var args = message.split(' ');
 
     if (message.substring(0, 3) == "db!"){
         args = message.substring(3).split(' ');
