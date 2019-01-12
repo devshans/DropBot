@@ -23,9 +23,9 @@ Runs by sending "db!" message in a Discord server with DropBot active.
    Will randomly choose a location in Fortnite to drop.
 
 Optional features:
-usage: db![option] [argument] ...
+usage: db![option]
 
-db![option]    Arguments
+db![option]    Description
 -----------------------
 db!            Randomly choose a Fortnite location to drop based on server settings.
 db!mute        Mutes DropBot audio in voice channel.
@@ -34,7 +34,7 @@ db!info        Shows DropBot settings on this server
 db!stop        Stop playing audio and remove DropBot from voice channel.
 
 -----------------------
-db!setweight [id] [weight]
+db!set [id] [weight]
   Change the chance of choosing each location.
 
 [id]  Location
@@ -66,9 +66,9 @@ db!setweight [id] [weight]
 
 All locations default to a weight of 5.
 Example: To remove Happy Hamlet from the list, send message:
-  "db!setweight 4 0
+  "db!set 4 0
 Example: To set Snobby Shores to the max chance, send message:
-  "db!setweight 17 10
+  "db!set 17 10
   ```
 
 ### Requirements:
