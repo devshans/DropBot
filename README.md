@@ -7,9 +7,15 @@ Automated Bot for Discord VoIP application and digital distribution platform.
 
 Randomly selects a location to start in for the Fortnite Battle Royale game.
 
-Built using node.js and discord.io.
+A small, single-file, fully featured [Discordapp](https://discordapp.com) bot built using Node.js and [discord.io](https://github.com/izy521/discord.io).
+Hosted on AWS.
 
-Not intended to be hosted locally.
+## Add DropBot to server:
+
+
+
+[Add to Discord](https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&permissions=0):
+https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&permissions=0
 
 ### Usage instructions:
 ```
