@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 2.0.0
+    @version    : 3.0.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -166,6 +166,7 @@ async function initGuildDatabase(guildName, guildID) {
                     Item:{
                         "name":guildName,			
                         "id":guildID,
+                        "numAccesses":1,
                         "dropLocations":stringDB,
 			"audioMute":false
                     }
@@ -193,7 +194,7 @@ async function initGuildDatabase(guildName, guildID) {
 
 }
 
-async function initUser(userName, userID, accessTime) {
+async function initUser(userName, userID, userDisc, accessTime) {
 
     return new Promise(function(resolve, reject) {
 
@@ -207,9 +208,11 @@ async function initUser(userName, userID, accessTime) {
                 var params = {
                     TableName: dbTableUsers,
                     Item:{
-                        "name":userName,
                         "id":userID,
+                        "discriminator":userDisc,
+                        "name":userName,
                         "accessTime":accessTime,
+                        "numAccesses":1,
                         "blocked":false
                     }
                 };
@@ -252,9 +255,10 @@ async function updateUser(userID, accessTime, blocked) {
                 "id":userID
             },
             ConditionExpression: 'attribute_exists(id)',
-            UpdateExpression: "set accessTime = :a, blocked = :b",
+            UpdateExpression: "set accessTime = :a, blocked = :b, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
                 ":a":accessTime,
+                ":val":1,
                 ":b":blocked
             },
             ReturnValues:"UPDATED_NEW"
@@ -327,9 +331,10 @@ async function updateGuildDrops(guildID) {
             Key:{
                 "id":guildID
             },
-            UpdateExpression: "set dropLocations = :d",
+            UpdateExpression: "set dropLocations = :d, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
-                ":d":stringDB
+                ":d":stringDB,
+                ":val":1                
             },
             ReturnValues:"UPDATED_NEW"
         };
@@ -478,7 +483,8 @@ bot.on('ready', function (evt) {
 async function handleCommand(args, userID, channelID, guildID) {
 
     var isDevUser = (DEVSHANS_ID == userID);
-    
+
+    //fixme - SPS. Check match length here and sanitize inputs.
     var cmd = args[0];
     message = "";
 
@@ -499,7 +505,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 message = "Please specify user ID to unban.";
                 break;
             }
-            var banUserID = args[0];
+            var banUserID = args[0]; //fixme - SPS. Check that this is a number. But casting it will round.
             message = "Resetting ban for user ID: " + banUserID;
             updateUser(banUserID, (new Date).getTime(), false).then(result => {
 
@@ -951,9 +957,11 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     var guildID = bot.channels[channelID].guild_id;
     var guildName = bot.servers[guildID].name;
 
+    var userDisc = bot.servers[guildID].members[userID].discriminator;
+
     if (DEBUG_VERBOSE) {
         console.log("--- New command ---");
-        console.log("User       : ", user);
+        console.log("User       :  " + user + "#" + userDisc);
         console.log("User ID    : ", userID);
         console.log("Channel    : ", bot.channels[channelID].name);	
         console.log("Channel ID : ", channelID);
@@ -963,7 +971,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         console.log("Time (ms)  : ", epochTime);
         console.log("message    : ", message);
         console.log("-------------------");
-        console.log("");        
+        console.log("");
     }
 
     if (message.substring(0, 3) == "db!"){
@@ -1002,7 +1010,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID].length == 0) {         
 
             console.log("Initializing user: ", userID);
-            initUser(user, userID, epochTime).then(result => {
+            initUser(user, userID, userDisc, epochTime).then(result => {
                 console.log(result);
             }).catch(err => {
                 console.log("COULD NOT detect user");
