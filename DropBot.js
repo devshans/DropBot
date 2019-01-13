@@ -1,13 +1,18 @@
 /*
     @document   : DropBot.js
     @author     : devshans
+    @version    : 2.0.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
+    @repository : https://github.com/devshans/DropBot
     @description: DropBot automated Bot for Discord Application.
                   Uses discord.io Discordapp library.
                   Randomly selects a location to start in for 
                     the Fortnite Battle Royale game. 
 		  Hosted on AWS.
+
+    Add bot to server with:
+        https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&permissions=0
 
     Links  * Epic Games : https://www.epicgames.com
            * Fortnite   : https://www.epicgames.com/fortnite/en-US/home
@@ -15,21 +20,45 @@
 	   * discord.io : https://github.com/izy521/discord.io
 */
 
+const DEBUG_VERBOSE = true;
+
 var Discord = require('discord.io');
 var logger  = require('winston');
-var auth    = require('./auth.json');
 var rwc     = require('random-weighted-choice');
 var fs      = require('fs');
 var AWS     = require("aws-sdk");
 let date    = require('date-and-time');
 
-const DEBUG_VERBOSE = true;
+var filenameArray = __filename.split("/");
+var developerMode = filenameArray[filenameArray.length-1] == "DropBot-dev.js" ? true : false;
+
+if (developerMode) {
+    console.log("Starting DropBot-dev.js in DEVELOPER mode");
+    var auth    = require('./auth-dev.json');
+} else {
+    console.log("*** Starting DropBot in PRODUCTION mode ***");
+    var auth    = require('./auth.json');
+}
 
 // Discord ID of this bot to identify ourselves.
-const DROPBOT_ID  = 487298106849886224;
+const DROPBOT_ID      = 487298106849886224;
+const DEV_DROPBOT_ID  = 533851604651081728;
 
-const USER_TIMEOUT_SEC = 2;
-const USER_MAX_STRIKES = 3;
+var   DEVSHANS_ID = -1;
+
+var devFilename = "dev.json";
+fs.readFile(devFilename, 'utf8', function(err, data) {
+    if (err) {
+        console.log("No " + devFilename + " file for authentication.");
+        return 1;
+    }
+    var devJson = JSON.parse(data);
+    console.log("Set DEVSHANS_ID to: ", devJson.uid);
+    DEVSHANS_ID = devJson.uid;
+});
+
+const USER_TIMEOUT_SEC = 1;
+const USER_MAX_STRIKES = 5;
 
 const NUM_DROP_LOCATIONS = 21;
 const DEFAULT_WEIGHT =  5;
@@ -42,12 +71,15 @@ AWS.config.update({
 
 var docClient = new AWS.DynamoDB.DocumentClient();
 
-var table = "DropLocations";
-
 // DynamoDB Table Names
-var dbTableGuilds    = "DropGuilds";
 var dbTableLocations = "DropLocations";
-var dbTableUsers     = "DropUsers";
+if (developerMode) {
+    var dbTableGuilds    = "dev_DropGuilds";
+    var dbTableUsers     = "dev_DropUsers";
+} else {
+    var dbTableGuilds    = "DropGuilds";
+    var dbTableUsers     = "DropUsers";
+}
 
 var dropLocationNames = [
     "Dusty Divot"
@@ -219,6 +251,7 @@ async function updateUser(userID, accessTime, blocked) {
             Key:{
                 "id":userID
             },
+            ConditionExpression: 'attribute_exists(id)',
             UpdateExpression: "set accessTime = :a, blocked = :b",
             ExpressionAttributeValues:{
                 ":a":accessTime,
@@ -239,6 +272,46 @@ async function updateUser(userID, accessTime, blocked) {
 
     });
 
+}
+
+async function resetAllUserBans() {
+
+    return new Promise(function(resolve, reject) {
+
+        var params = {
+            TableName: dbTableUsers,
+            FilterExpression: "blocked = :bool",
+            ExpressionAttributeValues: {
+                ":bool": true
+            }            
+        };
+
+        console.log("Scanning " + dbTableUsers + " table for banned users.");
+        docClient.scan(params, resetAllUserBanScan);
+        
+    });
+}
+
+function resetAllUserBanScan(err, data) {
+    if (err) {
+        console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
+    } else {
+        // Log and reset all banned users
+        console.log("Scan succeeded.");
+        data.Items.forEach(function(item) {
+            console.log(" -", item.name + ": " + item.blocked);
+            dropUserBlocked[item.id] = false;
+            updateUser(item.id, (new Date).getTime(), false);
+        });
+
+        // continue scanning if we have more movies, because
+        // scan can retrieve a maximum of 1MB of data
+        if (typeof data.LastEvaluatedKey != "undefined") {
+            console.log("Scanning for more...");
+            params.ExclusiveStartKey = data.LastEvaluatedKey;
+            docClient.scan(params, resetAllUserBanScan);
+        }
+    }
 }
 
 async function updateGuildDrops(guildID) {
@@ -404,13 +477,67 @@ bot.on('ready', function (evt) {
 
 async function handleCommand(args, userID, channelID, guildID) {
 
+    var isDevUser = (DEVSHANS_ID == userID);
+    
     var cmd = args[0];
     message = "";
 
-    console.log("handleCommand: ", args);
+    console.log("handleCommand: user=" + userID + " - " +  args);
 
     args = args.splice(1);
-    switch(cmd) {
+
+    // Commands restricted to developer user.
+    // --------------------------------------
+    if (isDevUser) {
+
+        console.log("Running command from dev user: ", userID);
+        
+        switch(cmd) {
+            
+        case 'resetban':
+            if (args.length < 1) {
+                message = "Please specify user ID to unban.";
+                break;
+            }
+            var banUserID = args[0];
+            message = "Resetting ban for user ID: " + banUserID;
+            updateUser(banUserID, (new Date).getTime(), false).then(result => {
+
+                dropUserBlocked[banUserID] = false;
+                setTimeout(function() {
+                    bot.sendMessage({
+                        to: channelID,
+                        message: "Ban cleared successfully."
+                    });
+                }, 200);
+                
+            }).catch((e) => {
+                console.log("Error: ", e);
+                setTimeout(function() {
+                    bot.sendMessage({
+                        to: channelID,
+                        message: "ERROR: " + e
+                    });
+                }, 200);
+            });
+            break;
+            
+        case 'resetallbans':
+            message = "Resetting bans for all users...";
+            resetAllUserBans();
+            setTimeout(function() {
+                bot.sendMessage({
+                    to: channelID,
+                    message: "Done."
+                });
+            }, 200);
+            break;
+        }
+    }
+
+    // User commands.
+    // --------------------------------------
+    switch(cmd) {        
 
     // List all possible commands and usage.
     case 'h':
@@ -499,6 +626,11 @@ async function handleCommand(args, userID, channelID, guildID) {
         var setId = Number(args[0]);
         var setWeight = Number(args[1]);
 
+        if (setId > (NUM_DROP_LOCATIONS-1) || setId < 0) {
+            message = "ERROR: Index must be within the range of 0 to " + (NUM_DROP_LOCATIONS-1);
+            break;
+        }
+        
         if (setWeight > MAX_WEIGHT || setWeight < 0) {
             message = "ERROR: Weight must be within the range of 0 to " + MAX_WEIGHT;
             break;
@@ -542,8 +674,8 @@ async function handleCommand(args, userID, channelID, guildID) {
             sendMessage += " - " + dropLocationWeight + "\n";
         }
 
-        if (nextTotalWeight < 10) {
-            message = "Error: All weights must add up to at least 10";
+        if (nextTotalWeight < 1) {
+            message = "Error: All weights must add up to at least 1";
             serverDropLocations[guildID][setId]['weight'] = previousWeight;
             break;
         }
@@ -653,30 +785,30 @@ async function handleCommand(args, userID, channelID, guildID) {
     case '':
     case 'wwdb': // Where we droppin', boys?
 
-        var dropLocationID = rwc(serverDropLocations[guildID]);;
+        var dropLocationID = rwc(serverDropLocations[guildID]);
         var dropChance;
 
-        //fixme - SPS. Time out or guarantee that we won't get stuck in this loop.
-        while (serverDropLocations[guildID][dropLocationID]           === undefined ||
-               serverDropLocations[guildID][dropLocationID]['weight'] === undefined ||
-               serverDropLocations[guildID][dropLocationID]['weight'] <= 0) {
-            dropLocationID = rwc(serverDropLocations[guildID]);
+        if (dropLocationID == null) {
+            console.log("ERROR: Could not select a drop location.");
+            message = "ERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
+            break;
         }
-        
+
         console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNames[dropLocationID]);
 
         if (serverDropLocations[guildID][dropLocationID]['weight']) {
-            dropChance = serverDropLocations[guildID][dropLocationID]['weight'] / 
-                serverDropWeights[guildID] * 100;
+            dropChance = serverDropLocations[guildID][dropLocationID]['weight'] / serverDropWeights[guildID] * 100;                
+            if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
-            console.log("dropLocationID " + dropLocationID + " is undefined");
+            console.log("ERROR: dropLocationID " + dropLocationID + " is undefined");
+            message = "ERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
             break;
         }
 
         message = 'So, where we droppin\' boys...';
 
         var dropLocation = dropLocationNames[dropLocationID];
-        var dropLocationMessage = dropLocation + " (" + dropChance.toPrecision(2) + "%)";	
+        var dropLocationMessage = dropLocation + " (" + dropChance + "%)";	
 
 	if (serverAudioMute[guildID]) {
 
@@ -803,28 +935,36 @@ async function handleCommand(args, userID, channelID, guildID) {
 
 bot.on('message', function (user, userID, channelID, message, evt) {
 
-    if (userID == DROPBOT_ID) return 0; // It's DropBot.
+    // Exit if it's DropBot.
+    if (userID == DROPBOT_ID || userID == DEV_DROPBOT_ID) return 0;
 
     // Our bot needs to know if it will execute a command
     // It will listen for messages that will start with `db!`
     var origMessage = message;
-    var epochTime = (new Date).getTime();
+    message = message.toLowerCase();
+    if (message.substring(0, 3) != "db!") return 0;   
+
+    var args = message.split(' ');
+    var dateTime = new Date();
+    var epochTime = dateTime.getTime();
 
     var guildID = bot.channels[channelID].guild_id;
-    var guildName = bot.servers[guildID].name;    
+    var guildName = bot.servers[guildID].name;
 
     if (DEBUG_VERBOSE) {
+        console.log("--- New command ---");
         console.log("User       : ", user);
         console.log("User ID    : ", userID);
         console.log("Channel    : ", bot.channels[channelID].name);	
         console.log("Channel ID : ", channelID);
         console.log("Guild      : ", guildName);	
         console.log("Guild ID   : ", guildID);
+        console.log("Time       : ", dateTime.toISOString());
         console.log("Time (ms)  : ", epochTime);
+        console.log("message    : ", message);
+        console.log("-------------------");
+        console.log("");        
     }
-
-    message = message.toLowerCase();
-    var args = message.split(' ');
 
     if (message.substring(0, 3) == "db!"){
         args = message.substring(3).split(' ');
@@ -852,7 +992,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 dropUserBlocked[userID]  = true;
                 updateUser(userID, epochTime, true);
             }
-            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked. Please contact developer devshans0@gmail.com"];
+            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked due to rate limiting.\nPlease wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
             console.log("User max strikes: " + userID + " too many requests.");
             handleCommand(args, userID, channelID, guildID);
             return 3;
@@ -903,8 +1043,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
             console.log("Server already initialized ", guildID);
             handleCommand(args, userID, channelID, guildID);
         }
-
-
+        
     }
 
 
