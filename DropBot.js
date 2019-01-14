@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 3.2.0
+    @version    : 3.3.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -336,7 +336,7 @@ async function updateGuildDrops(guildID) {
             UpdateExpression: "set dropLocations = :d, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
                 ":d":stringDB,
-                ":val":1                
+                ":val":1
             },
             ReturnValues:"UPDATED_NEW"
         };
@@ -363,9 +363,10 @@ async function updateGuildAudioMute(guildID) {
         var params = {
             TableName: dbTableGuilds,
             Key:{
-                "id":guildID
+                "id":guildID,
+                ":val":1                
             },
-            UpdateExpression: "set audioMute = :bool",
+            UpdateExpression: "set audioMute = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
                 ":bool":serverAudioMute[guildID]
             },
