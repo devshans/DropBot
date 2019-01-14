@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 3.3.0
+    @version    : 3.4.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -564,9 +564,11 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += '-----------------------\n';
         message += 'db!            Randomly choose a Fortnite location to drop based on server settings.\n';        
         message += 'db!mute        Mutes DropBot audio in voice channel.\n';
-        message += 'db!unmute      Unmutes DropBot audio. Requires user by in voice channel.\n';	
+        message += 'db!unmute      Unmutes DropBot audio. Requires user by in voice channel.\n';
+	message += 'db!settings    Shows only DropBot settings on this server.\n';
         message += 'db!info        Shows DropBot settings on this server and additional help.\n';
         message += 'db!stop        Stop playing audio and remove DropBot from voice channel.\n';
+	message += 'db!help        Show this help message again.\n';
         message += '\n';
         message += '-----------------------\n';
         message += 'db!set [id] [weight]\n';
@@ -724,7 +726,10 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += "GitHub           : https://github.com/devshans/DropBot\n";
         message += "Bot Link         : https://discordbots.org/bot/487298106849886224\n";
         message += "Support Discord  : https://discord.gg/YJWEsvV\n\n";
-        message += "Retrieving info for this server...";
+
+    case 'settings':
+
+        message += "\u200BRetrieving info for this server...";
 
         readGuild(guildID).then(result => {
 
@@ -984,6 +989,13 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     }
 
     if (message.substring(0, 3) == "db!"){
+
+	if (message.length > 3 && message[3] == " ") {
+	    args = ["error", "Do not put a space after \"db!\" and command"];
+            handleCommand(args, userID, channelID, guildID);
+            return 3;
+	}
+	
         args = message.substring(3).split(' ');
 
         if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {        
@@ -1009,7 +1021,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 dropUserBlocked[userID]  = true;
                 updateUser(userID, epochTime, true);
             }
-            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked due to rate limiting.\nPlease wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
+            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked due to rate limiting.\n" +
+		    "Please wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
             console.log("User max strikes: " + userID + " too many requests.");
             handleCommand(args, userID, channelID, guildID);
             return 3;
