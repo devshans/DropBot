@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 3.4.0
+    @version    : 3.5.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -25,7 +25,6 @@
 const DEBUG_VERBOSE = true;
 
 var Discord = require('discord.io');
-var logger  = require('winston');
 var rwc     = require('random-weighted-choice');
 var fs      = require('fs');
 var AWS     = require("aws-sdk");
@@ -122,11 +121,6 @@ var dropIntros = [
     ,'intro2.wav'
     ,'intro3.wav'
 ];
-
-// Configure logger settings
-logger.remove(logger.transports.Console);
-logger.add(new logger.transports.Console());
-logger.level = 'debug';
 
 var filenameArray = __filename.split("/");
 
@@ -462,9 +456,8 @@ async function initGuild(guildID) {
 }
 
 bot.on('ready', function (evt) {
-    logger.info('Connected');
-    logger.info('Logged in as: ');
-    logger.info(bot.username + ' - (' + bot.id + ')');
+    console.log('Connected');
+    console.log('Logged in as: ' + bot.username + ' - (' + bot.id + ')');
 
     var params = {
         TableName: dbTableUsers,
@@ -865,8 +858,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                     if (member.user_id == userID) {
 			voiceChannelID = c;
 
-			logger.info('Joining channel name: ' + channel.name);
-			logger.info('Joining channel ID:   ' + c);
+			console.log('Talking on channel ID: ' + c);
 
 			bot.joinVoiceChannel(c, function(error, events) {
                             if (error) {
