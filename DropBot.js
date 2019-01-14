@@ -363,12 +363,12 @@ async function updateGuildAudioMute(guildID) {
         var params = {
             TableName: dbTableGuilds,
             Key:{
-                "id":guildID,
-                ":val":1                
+                "id":guildID
             },
             UpdateExpression: "set audioMute = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
-                ":bool":serverAudioMute[guildID]
+                ":bool":serverAudioMute[guildID],
+                ":val":1                
             },
             ReturnValues:"UPDATED_NEW"
         };
