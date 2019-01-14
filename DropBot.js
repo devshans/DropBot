@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 3.1.0
+    @version    : 3.2.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -145,7 +145,7 @@ var bot = new Discord.Client({
 // 3: watching
 bot.setPresence({
     game: {    
-        name:"Where we droppin' boys?",
+        name:"\u200Bdb!help",
         type:2
     }
 });
@@ -508,7 +508,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 break;
             }
             var banUserID = args[0]; //fixme - SPS. Check that this is a number. But casting it will round.
-            message = "Resetting ban for user ID: " + banUserID;
+            message = "\u200BResetting ban for user ID: " + banUserID;
             updateUser(banUserID, (new Date).getTime(), false).then(result => {
 
                 dropUserBlocked[banUserID] = false;
@@ -531,7 +531,7 @@ async function handleCommand(args, userID, channelID, guildID) {
             break;
             
         case 'resetallbans':
-            message = "Resetting bans for all users...";
+            message = "\u200BResetting bans for all users...";
             resetAllUserBans();
             setTimeout(function() {
                 bot.sendMessage({
@@ -550,18 +550,21 @@ async function handleCommand(args, userID, channelID, guildID) {
     // List all possible commands and usage.
     case 'h':
     case 'help':
-        message =  '```DropBot\n';
+        message =  '\u200BDropBot\n';
         message += 'Runs by sending \"db!\" message in a Discord server with DropBot active.\n';
         message += '   Will randomly choose a location in Fortnite to drop.\n\n';
+        message += "Built using node.js and discord.io.\n";
+        message += "```Author   : devshans\n";
+        message += "GitHub   : https://github.com/devshans/DropBot\n";        
+        message += "Bot Link : https://discordbots.org/bot/487298106849886224\n";
         message += 'Discord support server: https://discord.gg/YJWEsvV \n\n';
-        message += 'Optional features:\n';
         message += 'usage: db![option]\n\n';
         message += 'db![option]    Description\n';
         message += '-----------------------\n';
         message += 'db!            Randomly choose a Fortnite location to drop based on server settings.\n';        
         message += 'db!mute        Mutes DropBot audio in voice channel.\n';
         message += 'db!unmute      Unmutes DropBot audio. Requires user by in voice channel.\n';	
-        message += 'db!info        Shows DropBot settings on this server\n';
+        message += 'db!info        Shows DropBot settings on this server and additional help.\n';
         message += 'db!stop        Stop playing audio and remove DropBot from voice channel.\n';
         message += '\n';
         message += '-----------------------\n';
@@ -590,7 +593,7 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 'error':
 
         if (args.length < 1) {
-            message = "Unhandled error.";
+            message = "\u200BUnhandled error.";
             break;
         }
         message = args[0];
@@ -600,10 +603,10 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 'mute':
 
 	if (serverAudioMute[guildID]) {
-            message = "DropBot is already muted.";
+            message = "\u200BDropBot is already muted.";
 	    break;
 	} else {
-            message = "Muting DropBot.";
+            message = "\u200BMuting DropBot.";
             serverAudioMute[guildID] = true;
 	}
 
@@ -614,10 +617,10 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 'unmute':
 
 	if (serverAudioMute[guildID]) {
-            message = "Allowing DropBot to speak again.";	    
+            message = "\u200BAllowing DropBot to speak again.";	    
             serverAudioMute[guildID] = false;
 	} else {
-            message = "DropBot is not muted.";
+            message = "\u200BDropBot is not muted.";
 	    break;
 	}
 
@@ -628,7 +631,7 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 'setweight':
 
         if (args.length < 2) {
-            message = "Please specify the index and weight.";
+            message = "\u200BPlease specify the index and weight.";
             break;
         }
 
@@ -636,12 +639,12 @@ async function handleCommand(args, userID, channelID, guildID) {
         var setWeight = Number(args[1]);
 
         if (setId > (NUM_DROP_LOCATIONS-1) || setId < 0) {
-            message = "ERROR: Index must be within the range of 0 to " + (NUM_DROP_LOCATIONS-1);
+            message = "\u200BERROR: Index must be within the range of 0 to " + (NUM_DROP_LOCATIONS-1);
             break;
         }
         
         if (setWeight > MAX_WEIGHT || setWeight < 0) {
-            message = "ERROR: Weight must be within the range of 0 to " + MAX_WEIGHT;
+            message = "\u200BERROR: Weight must be within the range of 0 to " + MAX_WEIGHT;
             break;
         }
 
@@ -651,11 +654,11 @@ async function handleCommand(args, userID, channelID, guildID) {
         var previousWeight = Number(serverDropLocations[guildID][setId]['weight']);
 
         if (serverDropLocations[guildID][setId]['weight'] == setWeight) {
-            message = "ERROR: Weight for " + dropLocationNames[setId] + " is already " + setWeight;
+            message = "\u200BERROR: Weight for " + dropLocationNames[setId] + " is already " + setWeight;
             break;
         }
 
-        message = "Setting weight for " + dropLocationNames[setId] + " to " + setWeight;
+        message = "\u200BSetting weight for " + dropLocationNames[setId] + " to " + setWeight;
         
         serverDropLocations[guildID][setId]['weight'] = setWeight;
         
@@ -684,7 +687,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         }
 
         if (nextTotalWeight < 1) {
-            message = "Error: All weights must add up to at least 1";
+            message = "\u200BError: All weights must add up to at least 1";
             serverDropLocations[guildID][setId]['weight'] = previousWeight;
             break;
         }
@@ -714,7 +717,13 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 'i':        
     case 'info':
 
-        message = "Retrieving server info...";
+        message  = "\u200BDropBot - Randomly select a location to start/drop in for the Fortnite Battle Royale Game.\n";
+        message += "Built using node.js and discord.io.\n";
+        message += "Author           : devshans\n";
+        message += "GitHub           : https://github.com/devshans/DropBot\n";
+        message += "Bot Link         : https://discordbots.org/bot/487298106849886224\n";
+        message += "Support Discord  : https://discord.gg/YJWEsvV\n\n";
+        message += "Retrieving info for this server...";
 
         readGuild(guildID).then(result => {
 
@@ -777,7 +786,7 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 'stop':
 
         var channels = bot.servers[guildID].channels;
-        message = "Sorry, my dudes. Shutting up now.";
+        message = "\u200BSorry, my dudes. Shutting up now.";
 
         for (var c in channels) {
             var channel = channels[c];
@@ -800,7 +809,7 @@ async function handleCommand(args, userID, channelID, guildID) {
 
         if (dropLocationID == null) {
             console.log("ERROR: Could not select a drop location.");
-            message = "ERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
+            message = "\u200BERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
             break;
         }
 
@@ -811,11 +820,11 @@ async function handleCommand(args, userID, channelID, guildID) {
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
             console.log("ERROR: dropLocationID " + dropLocationID + " is undefined");
-            message = "ERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
+            message = "\u200BERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
             break;
         }
 
-        message = 'So, where we droppin\' boys...';
+        message = '\u200BSo, where we droppin\' boys...';
 
         var dropLocation = dropLocationNames[dropLocationID];
         var dropLocationMessage = dropLocation + " (" + dropChance + "%)";	
@@ -833,7 +842,7 @@ async function handleCommand(args, userID, channelID, guildID) {
 	    
             sfxFile = 'sfx_droplocations/' + dropLocation.split(' ').join('_').toLowerCase() + '.wav';
             if (!fs.existsSync(sfxFile)) {
-		message = 'Oops... Tried to drop ' + dropLocation + ' but our audio file doesn\'t exist.';
+		message = '\u200BOops... Tried to drop ' + dropLocation + ' but our audio file doesn\'t exist.';
 		break;
             }
 
@@ -918,7 +927,7 @@ async function handleCommand(args, userID, channelID, guildID) {
             }
 
             if (voiceChannelID == -1) {
-		message = "Join a voice channel or mute DropBot using \"db!mute\".";
+		message = "\u200BJoin a voice channel or mute DropBot using \"db!mute\".";
             }
 	} // !(serverAudioMute)
         break;
@@ -926,15 +935,10 @@ async function handleCommand(args, userID, channelID, guildID) {
     } // switch (cmd)
 
 
-    if (message != "") {
+    if (message != "" && message != "\u200B") {
         bot.sendMessage({
             to: channelID,
             message: message
-        });
-    } else {
-        bot.sendMessage({
-            to: channelID,
-            message: 'DropBot doesn\'t understand that. Please run \'db!help\''
         });
     }
 
