@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 3.0.0
+    @version    : 3.1.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -10,6 +10,8 @@
                   Randomly selects a location to start in for 
                     the Fortnite Battle Royale game. 
 		  Hosted on AWS.
+
+    Discord support server: https://discord.gg/YJWEsvV
 
     Add bot to server with:
         https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&permissions=0
@@ -551,6 +553,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message =  '```DropBot\n';
         message += 'Runs by sending \"db!\" message in a Discord server with DropBot active.\n';
         message += '   Will randomly choose a location in Fortnite to drop.\n\n';
+        message += 'Discord support server: https://discord.gg/YJWEsvV \n\n';
         message += 'Optional features:\n';
         message += 'usage: db![option]\n\n';
         message += 'db![option]    Description\n';
@@ -773,17 +776,18 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 's':        
     case 'stop':
 
-        var channels = bot.channels;
+        var channels = bot.servers[guildID].channels;
         message = "Sorry, my dudes. Shutting up now.";
 
         for (var c in channels) {
             var channel = channels[c];
 
             if (channel.type == 2) {
-                logger.info('Asked to leave voice channel: ' + c);
+                console.log('Asked to leave voice channel: ' + c);
                 bot.leaveVoiceChannel(c);
             }
         }
+
         break;
 
 
