@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 3.5.0
+    @version    : 4.0.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -132,6 +132,10 @@ var bot = new Discord.Client({
     token: auth.token,
     autorun: true
 });
+
+// DiscordBotList API
+const DBL = require("dblapi.js");
+const dbl = developerMode ? null : new DBL(auth.dblToken, bot);
 
 // 0: playing
 // 1: streaming
@@ -304,7 +308,7 @@ function resetAllUserBanScan(err, data) {
             updateUser(item.id, (new Date).getTime(), false);
         });
 
-        // continue scanning if we have more movies, because
+        // continue scanning if we have more users, because
         // scan can retrieve a maximum of 1MB of data
         if (typeof data.LastEvaluatedKey != "undefined") {
             console.log("Scanning for more...");
@@ -455,10 +459,25 @@ async function initGuild(guildID) {
 
 }
 
+function dblPostStats(serverCount) {
+    console.log('*** DBL: Sending serverCount to Discord Bot List - ' + serverCount);
+    dbl.postStats(serverCount);
+}
+
 bot.on('ready', function (evt) {
     console.log('Connected');
     console.log('Logged in as: ' + bot.username + ' - (' + bot.id + ')');
 
+    if (! (developerMode)) {
+        var serverCount = Object.keys(bot.servers).length;
+
+	// Send serverCount to DBL at startup and then every 30 minutes.
+        dbl.postStats(serverCount); 
+        setInterval(() => {
+	    dbl.postStats(serverCount);
+        }, 1800000);	
+    }
+    
     var params = {
         TableName: dbTableUsers,
     };
@@ -474,13 +493,14 @@ bot.on('ready', function (evt) {
         done();
     });
 
+    console.log('DropBot done initializing. Ready to accept user commands.');
+
 });
 
 async function handleCommand(args, userID, channelID, guildID) {
 
     var isDevUser = (DEVSHANS_ID == userID);
 
-    //fixme - SPS. Check match length here and sanitize inputs.
     var cmd = args[0];
     message = "";
 
@@ -498,7 +518,7 @@ async function handleCommand(args, userID, channelID, guildID) {
             
         case 'resetban':
             if (args.length < 1) {
-                message = "Please specify user ID to unban.";
+                message = "\u200BPlease specify user ID to unban.";
                 break;
             }
             var banUserID = args[0]; //fixme - SPS. Check that this is a number. But casting it will round.
@@ -509,7 +529,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 setTimeout(function() {
                     bot.sendMessage({
                         to: channelID,
-                        message: "Ban cleared successfully."
+                        message: "\u200BBan cleared successfully."
                     });
                 }, 200);
                 
@@ -518,7 +538,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 setTimeout(function() {
                     bot.sendMessage({
                         to: channelID,
-                        message: "ERROR: " + e
+                        message: "\u200BERROR: " + e
                     });
                 }, 200);
             });
@@ -548,40 +568,23 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += 'Runs by sending \"db!\" message in a Discord server with DropBot active.\n';
         message += '   Will randomly choose a location in Fortnite to drop.\n\n';
         message += "Built using node.js and discord.io.\n";
-        message += "```Author   : devshans\n";
+        message += '```';
+        message += "Author   : devshans\n";
         message += "GitHub   : https://github.com/devshans/DropBot\n";        
         message += "Bot Link : https://discordbots.org/bot/487298106849886224\n";
         message += 'Discord support server: https://discord.gg/YJWEsvV \n\n';
         message += 'usage: db![option]\n\n';
-        message += 'db![option]    Description\n';
-        message += '-----------------------\n';
-        message += 'db!            Randomly choose a Fortnite location to drop based on server settings.\n';        
-        message += 'db!mute        Mutes DropBot audio in voice channel.\n';
-        message += 'db!unmute      Unmutes DropBot audio. Requires user by in voice channel.\n';
-	message += 'db!settings    Shows only DropBot settings on this server.\n';
-        message += 'db!info        Shows DropBot settings on this server and additional help.\n';
-        message += 'db!stop        Stop playing audio and remove DropBot from voice channel.\n';
-	message += 'db!help        Show this help message again.\n';
-        message += '\n';
-        message += '-----------------------\n';
-        message += 'db!set [id] [weight]\n';
-        message += '  Change the chance of choosing each location.\n';
-        message += '\n';
-        message += '[id]  Location\n';
-        for (var i in dropLocationNames) {
-            if (i < 10) message += ' ';
-            message += i + '    ' + dropLocationNames[i] + '\n';
-        }
-        message += '\n';
-        message += '[weight] can be 0 to 10.\n';
-        message += ' 10 being most likely to be chosen.\n';
-        message += '  0 being a location that will not be chosen.\n';
-        message += '\n';        
-        message += 'All locations default to a weight of 5.\n';
-        message += 'Example: To remove Happy Hamlet from the list, send message:\n';
-        message += '  \"db!set 4 0\n';
-        message += 'Example: To set Snobby Shores to the max chance, send message:\n';
-        message += '  \"db!set 17 10\n';
+        message += 'db![option]            Description\n';
+        message += '----------------------------------\n';
+        message += 'db!                  : Randomly choose a Fortnite location to drop based on server settings.\n';        
+        message += 'db!mute              : Mutes DropBot audio in voice channel.\n';
+        message += 'db!unmute            : Unmutes DropBot audio. Requires user by in voice channel.\n';
+	message += 'db!settings          : Shows only DropBot settings on this server.\n';
+        message += 'db!info              : Shows DropBot settings on this server and additional help.\n';
+        message += 'db!stop              : Stop playing audio and remove DropBot from voice channel.\n';
+	message += 'db!help              : Show this help message again.\n';
+        message += 'db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.\n';
+        message += '----------------------------------\n';
         message += '```';
         break;
         
@@ -624,7 +627,30 @@ async function handleCommand(args, userID, channelID, guildID) {
 	break;
 
     case 'set':
-    case 'setweight':
+
+	if (args.length == 1 && args[0] == "help") {
+	    message =  '\u200BHelp for changing drop location chance\n';
+	    message += '```';
+            message += 'db!set [id] [weight]\n';
+            message += '----------------------------------\n';
+            message += '[id]  Location\n';
+            for (var i in dropLocationNames) {
+                if (i < 10) message += ' ';
+                message += i + '    ' + dropLocationNames[i] + '\n';
+            }
+            message += '\n';
+            message += '[weight] can be 0 to 10.\n';
+            message += ' 10 being most likely to be chosen.\n';
+            message += '  0 being a location that will not be chosen.\n';
+            message += '\n';        
+            message += 'All locations default to a weight of 5.\n';
+            message += 'Example: To remove Happy Hamlet from the list, send message:\n';
+            message += '  \"db!set 4 0\n';
+            message += 'Example: To set Snobby Shores to the max chance, send message:\n';
+            message += '  \"db!set 17 10\n';
+            message += '```';
+            break;
+	}
 
         if (args.length < 2) {
             message = "\u200BPlease specify the index and weight.";
@@ -720,6 +746,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += "Bot Link         : https://discordbots.org/bot/487298106849886224\n";
         message += "Support Discord  : https://discord.gg/YJWEsvV\n\n";
 
+    case 's':
     case 'settings':
 
         message += "\u200BRetrieving info for this server...";
@@ -781,7 +808,6 @@ async function handleCommand(args, userID, channelID, guildID) {
     // Note that this will only work if the message was sent in a guild
     // and the author is actually in a voice channel.
     // It also won't stop the existing command but will not play audio.
-    case 's':        
     case 'stop':
 
         var channels = bot.servers[guildID].channels;
@@ -943,8 +969,6 @@ async function handleCommand(args, userID, channelID, guildID) {
     return 1;
 }
 
-
-
 bot.on('message', function (user, userID, channelID, message, evt) {
 
     // Exit if it's DropBot.
@@ -954,9 +978,10 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     // It will listen for messages that will start with `db!`
     var origMessage = message;
     message = message.toLowerCase();
-    if (message.substring(0, 3) != "db!") return 0;   
-
+    if (message.substring(0, 3) != "db!") return 0;
+		
     var args = message.split(' ');
+   
     var dateTime = new Date();
     var epochTime = dateTime.getTime();
 
@@ -965,6 +990,20 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 
     var userDisc = bot.servers[guildID].members[userID].discriminator;
 
+    // Discord bot best practices ask that unsupported commands fail silently.
+    //   Source: https://github.com/meew0/discord-bot-best-practices
+    //
+    // WE DO give an error if there is a space before what could be a valid command.
+    if (message.length > 4 && message[3] == " " && message[4].match(/[a-z]/i)) {
+	args = ["error", "Do not put a space after \"db!\" and command"];
+        handleCommand(args, userID, channelID, guildID);
+        return 3;
+    }
+    // Fail silently if the first letter of command is anything other than a letter.
+    if (message.length > 3 && !(message[3].match(/[a-z]/i))) {
+	return 4;
+    }
+    
     if (DEBUG_VERBOSE) {
         console.log("--- New command ---");
         console.log("User       :  " + user + "#" + userDisc);
@@ -980,95 +1019,86 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         console.log("");
     }
 
-    if (message.substring(0, 3) == "db!"){
+    
+    args = message.substring(3).split(' ');
 
-	if (message.length > 3 && message[3] == " ") {
-	    args = ["error", "Do not put a space after \"db!\" and command"];
-            handleCommand(args, userID, channelID, guildID);
+    if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {        
+        console.log("Reading user... ", userID);
+        readUser(userID).then(result => {
+
+	    if (result.Item != null) {
+                dropUserTimeout[userID] = result.Item.accessTime;
+                dropUserStrikes[userID] = 0; // Always reset when server reloads
+                dropUserBlocked[userID] = result.Item.blocked;
+                dropUserInitialized[userID] = true;
+	    }
+
+        }).catch((err) => {
+            console.log("Error: ", err);
             return 3;
-	}
-	
-        args = message.substring(3).split(' ');
+        });
+    }
 
-        if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {        
-            console.log("Reading user... ", userID);
-            readUser(userID).then(result => {
+    if (dropUserBlocked[userID] == true || dropUserStrikes[userID] == USER_MAX_STRIKES) {
 
-		if (result.Item != null) {
-                    dropUserTimeout[userID] = result.Item.accessTime;
-                    dropUserStrikes[userID] = 0; // Always reset when server reloads
-                    dropUserBlocked[userID] = result.Item.blocked;
-                    dropUserInitialized[userID] = true;
-		}
-
-            }).catch((err) => {
-                console.log("Error: ", err);
-                return 3;
-            });
+        if (dropUserBlocked[userID] == false) {
+            dropUserBlocked[userID]  = true;
+            updateUser(userID, epochTime, true);
         }
-
-        if (dropUserBlocked[userID] == true || dropUserStrikes[userID] == USER_MAX_STRIKES) {
-
-            if (dropUserBlocked[userID] == false) {
-                dropUserBlocked[userID]  = true;
-                updateUser(userID, epochTime, true);
-            }
-            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked due to rate limiting.\n" +
-		    "Please wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
-            console.log("User max strikes: " + userID + " too many requests.");
-            handleCommand(args, userID, channelID, guildID);
-            return 3;
-        }
-
-
-        if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID].length == 0) {         
-
-            console.log("Initializing user: ", userID);
-            initUser(user, userID, userDisc, epochTime).then(result => {
-                console.log(result);
-            }).catch(err => {
-                console.log("COULD NOT detect user");
-                console.log(err);
-            });
-        } else {
-            updateUser(userID, epochTime, false);
-            if (args[0] != 'stop') {
-                if (((epochTime - dropUserTimeout[userID])/1000) < USER_TIMEOUT_SEC) {
-                    dropUserStrikes[userID] = dropUserStrikes[userID]+1;
-                    args = ["error", "Please wait " + USER_TIMEOUT_SEC + " seconds in between each command. Strike " + dropUserStrikes[userID] + "/" + USER_MAX_STRIKES];
-                    console.log("User error: ID: " + userID + " too many requests.");
-                    handleCommand(args, userID, channelID, guildID);
-                    return 1;
-                }
-            }
-            dropUserStrikes[userID] = 0;
-        }
-
-        if (serverDropLocations[guildID] === undefined || serverDropLocations[guildID].length == 0) {
-            console.log("First access from server: ", guildID);
-
-            initGuildDatabase(guildName, guildID).then(result => {
-                //console.log(result);
-                console.log("Initialized server.");
-            }).catch(err => {
-                console.log("COULD NOT detect guild");
-            }).then(() => {
-
-                initGuild(guildID).then(function(result) {
-                    handleCommand(args, userID, channelID, guildID);
-                }, function(err) {
-                    console.log(err);
-                });
-            });
-
-        } else {
-            console.log("Server already initialized ", guildID);
-            handleCommand(args, userID, channelID, guildID);
-        }
-        
+        args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked due to rate limiting.\n" +
+		"Please wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
+        console.log("User max strikes: " + userID + " too many requests.");
+        handleCommand(args, userID, channelID, guildID);
+        return 3;
     }
 
 
+    if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID].length == 0) {         
+
+        console.log("Initializing user: ", userID);
+        initUser(user, userID, userDisc, epochTime).then(result => {
+            console.log(result);
+        }).catch(err => {
+            console.log("COULD NOT detect user");
+            console.log(err);
+        });
+    } else {
+        updateUser(userID, epochTime, false);
+        if (args[0] != 'stop') {
+            if (((epochTime - dropUserTimeout[userID])/1000) < USER_TIMEOUT_SEC) {
+                dropUserStrikes[userID] = dropUserStrikes[userID]+1;
+                args = ["error", "Please wait " + USER_TIMEOUT_SEC + " seconds in between each command. Strike " + dropUserStrikes[userID] + "/" + USER_MAX_STRIKES];
+                console.log("User error: ID: " + userID + " too many requests.");
+                handleCommand(args, userID, channelID, guildID);
+                return 1;
+            }
+        }
+        dropUserStrikes[userID] = 0;
+    }
+
+    if (serverDropLocations[guildID] === undefined || serverDropLocations[guildID].length == 0) {
+        console.log("First access from server: ", guildID);
+
+        initGuildDatabase(guildName, guildID).then(result => {
+            //console.log(result);
+            console.log("Initialized server.");
+        }).catch(err => {
+            console.log("COULD NOT detect guild");
+        }).then(() => {
+
+            initGuild(guildID).then(function(result) {
+                handleCommand(args, userID, channelID, guildID);
+            }, function(err) {
+                console.log(err);
+            });
+        });
+
+    } else {
+        console.log("Server already initialized ", guildID);
+        handleCommand(args, userID, channelID, guildID);
+    }
+
+    
 }); // bot.on(message)
 
 // ----------------------------------------------------------------------------------------
