@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 4.1.0
+    @version    : 4.2.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -42,8 +42,8 @@ if (developerMode) {
 }
 
 // Discord ID of this bot to identify ourselves.
-const DROPBOT_ID      = 487298106849886224;
-const DEV_DROPBOT_ID  = 533851604651081728;
+const DROPBOT_ID      = "487298106849886224";
+const DEV_DROPBOT_ID  = "533851604651081728";
 
 var   DEVSHANS_ID = -1;
 
@@ -468,13 +468,12 @@ bot.on('ready', function (evt) {
     console.log('Connected');
     console.log('Logged in as: ' + bot.username + ' - (' + bot.id + ')');
 
-    if (! (developerMode)) {
+    // Send serverCount to DBL at startup and then every 30 minutes.
+    if (! (developerMode) && bot.id == DROPBOT_ID) {
         var serverCount = Object.keys(bot.servers).length;
-
-	// Send serverCount to DBL at startup and then every 30 minutes.
         dblPostStats(serverCount); 
         setInterval(() => {
-	    dblPostStats(serverCount);
+            dblPostStats(serverCount);
         }, 1800000);	
     }
     
@@ -739,12 +738,19 @@ async function handleCommand(args, userID, channelID, guildID) {
     case 'i':        
     case 'info':
 
-        message  = "\u200BDropBot - Randomly select a location to start/drop in for the Fortnite Battle Royale Game.\n";
+        message  = "\u200B\n";
+        message += "DropBot - Randomly select a location to start/drop in for the Fortnite Battle Royale Game.\n";
+        message += "```";
+        message += "Bot usage help : \"db!help\"\n";
+        message += "Server settings: \"db!settings\"\n";
         message += "Built using node.js and discord.io.\n";
         message += "Author           : devshans\n";
+        message += "Email            : devshans0@gmail.com\n"
         message += "GitHub           : https://github.com/devshans/DropBot\n";
         message += "Bot Link         : https://discordbots.org/bot/487298106849886224\n";
         message += "Support Discord  : https://discord.gg/YJWEsvV\n\n";
+        message += "```";
+        break;
 
     case 's':
     case 'settings':
@@ -954,6 +960,7 @@ async function handleCommand(args, userID, channelID, guildID) {
 		message = "\u200BJoin a voice channel or mute DropBot using \"db!mute\".";
             }
 	} // !(serverAudioMute)
+       
         break;
         
     } // switch (cmd)
@@ -973,6 +980,13 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 
     // Exit if it's DropBot.
     if (userID == DROPBOT_ID || userID == DEV_DROPBOT_ID) return 0;
+
+    var isDevUser = (DEVSHANS_ID == userID);
+    var maxMessageLength = isDevUser ? 20 : 12;
+
+    //fixme - SPS. Make a counter to see if this continues to happen and report user.    
+    // If a user is banned, do not allow them to continue spamming the bot.
+    if (dropUserBlocked[userID] && !(isDevUser)) return 0;
 
     // Our bot needs to know if it will execute a command
     // It will listen for messages that will start with `db!`
@@ -999,17 +1013,15 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         handleCommand(args, userID, channelID, guildID);
         return 3;
     }
-    // console.log("SPS: 3: " + message[3]);
-    // console.log("SPS: 3 ?: " + message[3].match(/[a-z]/i));
     // Fail silently if the first letter of command is anything other than a letter.
     if (message.length > 3 && !(message[3].match(/[a-z]/i))) {
 	return 4;
     }
     // Drop commands that are too long.
-    // Currently, this is the longest valid command: (Length is 12)
+    // Currently, this is the longest valid user command:
     //    db!set 20 10
     // Drop messages greater than this length but suggest help if the command is "set"
-    if (message.length > 12) {
+    if (message.length > maxMessageLength) {
         if (message.substring(3,6) == "set") {
             args = ["error", "Wrong syntax for set command. Please use \"db!set help\" for usage."];
             handleCommand(args, userID, channelID, guildID);
