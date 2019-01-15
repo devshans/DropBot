@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 4.0.0
+    @version    : 4.1.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -472,9 +472,9 @@ bot.on('ready', function (evt) {
         var serverCount = Object.keys(bot.servers).length;
 
 	// Send serverCount to DBL at startup and then every 30 minutes.
-        dbl.postStats(serverCount); 
+        dblPostStats(serverCount); 
         setInterval(() => {
-	    dbl.postStats(serverCount);
+	    dblPostStats(serverCount);
         }, 1800000);	
     }
     
@@ -979,7 +979,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     var origMessage = message;
     message = message.toLowerCase();
     if (message.substring(0, 3) != "db!") return 0;
-		
+	
     var args = message.split(' ');
    
     var dateTime = new Date();
@@ -999,10 +999,24 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         handleCommand(args, userID, channelID, guildID);
         return 3;
     }
+    // console.log("SPS: 3: " + message[3]);
+    // console.log("SPS: 3 ?: " + message[3].match(/[a-z]/i));
     // Fail silently if the first letter of command is anything other than a letter.
     if (message.length > 3 && !(message[3].match(/[a-z]/i))) {
 	return 4;
     }
+    // Drop commands that are too long.
+    // Currently, this is the longest valid command: (Length is 12)
+    //    db!set 20 10
+    // Drop messages greater than this length but suggest help if the command is "set"
+    if (message.length > 12) {
+        if (message.substring(3,6) == "set") {
+            args = ["error", "Wrong syntax for set command. Please use \"db!set help\" for usage."];
+            handleCommand(args, userID, channelID, guildID);
+        }
+        return 3;
+    }
+    
     
     if (DEBUG_VERBOSE) {
         console.log("--- New command ---");
