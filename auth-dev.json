@@ -1,3 +1,4 @@
 {
-    "token": "<bot token>"
+    "token"   : "<Discord bot token>",
+    "dblToken": "<DiscordBotList API token>"
 }
