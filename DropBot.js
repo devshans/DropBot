@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 4.5.0
+    @version    : 5.0.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -23,8 +23,12 @@
 */
 
 var DEBUG_MESSAGE  = true;
-var DEBUG_COMMAND  = false;
-var DEBUG_DATABASE = false;
+var DEBUG_COMMAND  = true;
+var DEBUG_DATABASE = true;
+var DEBUG_DBL      = true;
+var DEBUG_VOTE     = true;
+
+var STRIKE_SYSTEM_ENABLED = false;
 
 var Discord = require('discord.io');
 var rwc     = require('random-weighted-choice');
@@ -60,7 +64,8 @@ fs.readFile(devFilename, 'utf8', function(err, data) {
     DEVSHANS_ID = devJson.uid;
 });
 
-const USER_TIMEOUT_SEC = 1;
+const NO_VOTE_USER_TIMEOUT_SEC = (1 * 60);
+const VOTE_USER_TIMEOUT_SEC    = 1;
 const USER_MAX_STRIKES = 5;
 
 const NUM_DROP_LOCATIONS = 21;
@@ -114,6 +119,8 @@ var dropUserInitialized = {};
 var dropUserTimeout     = {};
 var dropUserStrikes     = {};
 var dropUserBlocked     = {};
+var dropUserIsVoter     = {};
+var dropUserWarned      = {};
 var serverDropLocations = {};
 var serverDropWeights   = {};
 var serverAudioMute     = {};
@@ -137,7 +144,7 @@ var bot = new Discord.Client({
 
 // DiscordBotList API
 const DBL = require("dblapi.js");
-const dbl = developerMode ? null : new DBL(auth.dblToken, bot);
+const dbl = new DBL(auth.dblToken, bot); // NOTE: Make sure to guard any accesses from DropBot-dev with developerMode.
 
 // 0: playing
 // 1: streaming
@@ -162,7 +169,7 @@ async function initGuildDatabase(guildName, guildID) {
 
             if (result.Item == null) {
                 // Create entry in database.
-                console.log("Attempting to create a new guild entry in database...");
+                console.log("Creating NEW server database entry: " + guildName + "[" + guildID + "]");
                 var params = {
                     TableName: dbTableGuilds,
                     Item:{
@@ -175,15 +182,15 @@ async function initGuildDatabase(guildName, guildID) {
                 };
 
                 docClient.put(params).promise().then(function(result) {
-                    console.log("Successfully created entry.");
+                    if (DEBUG_DATABASE) console.log("Successfully created entry.");
                     resolve(result);
                 }, function(err) {
-                    console.log("Failed to create database entry");
-                    console.log(err);
+                    console.error("ERROR: Failed to create database entry:\n", err);
                     reject(err);
                 });
 
             } else {
+                if (DEBUG_DATABASE) console.log("Server already exists in database..");
                 resolve(result);
             }
 
@@ -205,8 +212,7 @@ async function initUser(userName, userID, userDisc, accessTime) {
         userPromise.then(function(result) {
 
             if (result.Item == null) {
-                // Create entry in database.
-                console.log("Attempting to create a new user entry in database...");
+                console.log("Creating NEW user database entry: " + userName + "[" + userID + "]");
                 var params = {
                     TableName: dbTableUsers,
                     Item:{
@@ -224,11 +230,12 @@ async function initUser(userName, userID, userDisc, accessTime) {
                     dropUserTimeout[userID] = accessTime;
                     dropUserStrikes[userID] = 0;
                     dropUserBlocked[userID] = false;
+                    dropUserIsVoter[userID] = true;
+		    dropUserWarned[userID]  = false;
                     dropUserInitialized[userID] = true;
                     resolve(result);
                 }, function(err) {
-                    console.log("Failed to create database entry");
-                    console.log(err);
+                    console.error("ERROR initUser: Failed to create database entry.\n", err);
                     reject(err);
                 });
 
@@ -306,6 +313,8 @@ function resetAllUserBanScan(err, data) {
         data.Items.forEach(function(item) {
             console.log(" -", item.name + ": " + item.blocked);
             dropUserBlocked[item.id] = false;
+            dropUserIsVoter[item.id] = true;
+	    dropUserWarned[item.id]  = false;
             updateUser(item.id, (new Date).getTime(), false);
         });
 
@@ -426,11 +435,6 @@ async function initGuild(guildID) {
 
         if (DEBUG_DATABASE) console.log("Getting dropLocation weights for server: ", guildID);
 
-        if (serverDropLocations[guildID] != null && serverDropLocations[guildID].length > 0) {
-            console.log("serverDropLocations already set.");
-            resolve(serverDropLocations[guildID]);
-        }
-
         serverDropLocations[guildID] = [];
         serverDropWeights[guildID]   = 0;
 	serverAudioMute[guildID]     = false;
@@ -485,6 +489,8 @@ bot.on('ready', function (evt) {
                 dropUserTimeout[data.Items[index].id] = data.Items[index].accessTime;
                 dropUserStrikes[data.Items[index].id] = 0;
                 dropUserBlocked[data.Items[index].id] = data.Items[index].blocked;
+                dropUserIsVoter[data.Items[index].id] = true;
+		dropUserWarned[data.Items[index].id]  = false;
                 dropUserInitialized[data.Items[index].id] = true;
             }
         }
@@ -527,14 +533,47 @@ async function handleCommand(args, userID, channelID, guildID) {
             DEBUG_DATABASE = !DEBUG_DATABASE;
             message = "\u200BSet DEBUG_DATABASE to " + DEBUG_DATABASE;
             break;
+        case 'debugdbl':
+            DEBUG_DBL = !DEBUG_DBL;
+            message = "\u200BSet DEBUG_DBL to " + DEBUG_DBL;
+            break;
+        case 'debugvote':
+            DEBUG_VOTE = !DEBUG_VOTE;
+            message = "\u200BSet DEBUG_VOTE to " + DEBUG_VOTE;
+            break;
 
         case 'viewdebug':
             message = "\u200BDebug flag status:";
             message += "```";
-            message += "DEBUG_MESSAGE  : " + DEBUG_MESSAGE + "\n";
-            message += "DEBUG_COMMAND  : " + DEBUG_COMMAND + "\n";
+            message += "DEBUG_MESSAGE  : " + DEBUG_MESSAGE  + "\n";
+            message += "DEBUG_COMMAND  : " + DEBUG_COMMAND  + "\n";
             message += "DEBUG_DATABASE : " + DEBUG_DATABASE + "\n";
+            message += "DEBUG_DBL      : " + DEBUG_DBL      + "\n";
+            message += "DEBUG_VOTE     : " + DEBUG_VOTE     + "\n";
             message += "```";
+            break;
+
+        case 'debugon':
+            DEBUG_MESSAGE  = true;
+            DEBUG_COMMAND  = true;
+            DEBUG_DATABASE = true;
+            DEBUG_DBL      = true;
+            DEBUG_VOTE     = true;
+            message = "\u200BSet all debug flags to TRUE.";
+            break;
+
+        case 'debugoff':
+            DEBUG_MESSAGE  = false;
+            DEBUG_COMMAND  = false;
+            DEBUG_DATABASE = false;
+            DEBUG_DBL      = false;
+            DEBUG_VOTE     = false;
+            message = "\u200BSet all debug flags to FALSE.";
+            break;
+
+        case 'strikesystem':            
+            STRIKE_SYSTEM_ENABLED = !STRIKE_SYSTEM_ENABLED;
+            message = "\u200BSet STRIKE_SYSTEM_ENABLED to " + STRIKE_SYSTEM_ENABLED;
             break;
             
         case 'resetban':
@@ -589,7 +628,42 @@ async function handleCommand(args, userID, channelID, guildID) {
             message += "  dropUserTimeout - " + dropUserTimeout[otherUserID] + "\n";
             message += "  dropUserStrikes - " + dropUserStrikes[otherUserID] + "\n";
             message += "  dropUserBlocked - " + dropUserBlocked[otherUserID] + "\n";
+            message += "  dropUserIsVoter - " + dropUserIsVoter[otherUserID] + "\n";
+	    message += "  dropUserWarned  - " + dropUserWarned[otherUserID]  + "\n";
             message += "```";
+            
+            break;
+
+        case 'isvoter':
+
+            if (args.length < 1) {
+                message = "\u200BPlease specify user ID to check for voting.";
+                break;
+            }
+            var otherUserID = args[0];
+
+            message = "Checking user ID + " + otherUserID + " for voting status...";
+            dbl.hasVoted(otherUserID).then(voted => {
+                var sendMessage = "";
+                if (! (voted)) {
+                    sendMessage  = userID + " has NOT been verified to use DropBot in the last 24 hours.\n";
+                    sendMessage += "Strike " + dropUserStrikes[userID] + "/" + USER_MAX_STRIKES;
+                    console.log(sendMessage);                
+                } else {
+                    sendMessage  = userID + " HAS voted to use DropBot in the last 24 hours.\n";
+                    console.log(sendMessage);
+                }
+
+                setTimeout(function() {
+                    bot.sendMessage({
+                        to: channelID,
+                        message: sendMessage
+                    });
+                }, 200);
+                
+            }).catch((err) => {
+                console.error("ERROR isvoter: ", err);
+            });
             
             break;
 
@@ -621,6 +695,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += 'db!info              : Shows DropBot information and links/commands for additional help.\n';
         message += 'db!stop              : Stop playing audio and remove DropBot from voice channel.\n';
 	message += 'db!help              : Show this help message again.\n';
+	message += 'db!vote              : Check and update bot vote status within the last 24 hours without rate limit penalty.\n';
         message += 'db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.\n';
         message += '----------------------------------\n';
         message += '```';
@@ -634,6 +709,38 @@ async function handleCommand(args, userID, channelID, guildID) {
             break;
         }
         message = args[0];
+        break;
+
+    case 'v':
+    case 'vote':
+        message = "\u200BChecking for voting status...\n";
+        dbl.hasVoted(userID).then(voted => {
+            var sendMessage = "";
+            if (voted) {
+                sendMessage  = "\u200B<@!" + userID + "> has already voted within the last 24 hours.\n";
+                sendMessage += "Rate limiting already reduced to minimum of 1 second between commands.\n";
+                sendMessage += "DropBot can be voted for in the future at at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote";
+                dropUserIsVoter[userID] = true;
+            }
+            else {
+                sendMessage  =  "\u200B<@!" + userID + "> has NOT voted in the last 24 hours.\n";
+                sendMessage += "If you just voted, wait about a minute or 2 for it to process.\n";
+                sendMessage += "Rate limiting set to 1 minute in between commands.\n";
+                sendMessage += "Please vote at for DropBot at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote";
+                dropUserIsVoter[userID] = false;
+            }
+            if (DEBUG_VOTE) console.log(sendMessage);
+
+            setTimeout(function() {
+                bot.sendMessage({
+                    to: channelID,
+                    message: sendMessage
+                });
+            }, 200);
+
+        }).catch((err) => {
+            console.error("ERROR vote command: ", err);
+        });
         break;
 
     case 'm':
@@ -851,17 +958,20 @@ async function handleCommand(args, userID, channelID, guildID) {
 
         break;
 
+    //fixme - SPS. Check that user is in a guild. Update description.
     // Note that this will only work if the message was sent in a guild
     // and the author is actually in a voice channel.
     // It also won't stop the existing command but will not play audio.
     case 'stop':
 
         var channels = bot.servers[guildID].channels;
-        message = "\u200BSorry, my dudes. Shutting up now.";
+        message = "\u200BSorry.... Leaving all voice channels on server now.";
 
         for (var c in channels) {
             var channel = channels[c];
 
+            //fixme - SPS. Can we check for the string 'voice'?
+            //   Also increase logging here.
             if (channel.type == 2) {
                 console.log('Asked to leave voice channel: ' + c);
                 bot.leaveVoiceChannel(c);
@@ -956,7 +1066,8 @@ async function handleCommand(args, userID, channelID, guildID) {
 					to: channelID,
 					message: 'Had a strange problem talking... Wait a sec?'
                                     });
-                                    return console.error(error);
+                                    console.error(error);
+                                    return 1;
 				}
 
 				if (fs.existsSync(sfxFile)) {
@@ -1018,11 +1129,31 @@ async function handleCommand(args, userID, channelID, guildID) {
         });
     }
 
+    // Check voter status after each successful command.
+    // We default users to voters at bot/user initialization and demote from there.
+    // Will be checked again prior to sending a message,
+    //   if they have a non-voter restriction and send a command under the time limit.
+    dbl.hasVoted(userID).then(voted => {
+        
+	if (DEBUG_VOTE) console.log("DBL After: Changing " + userID + " voter status to " + voted);
+        
+        if (dropUserIsVoter[userID] != voted) {
+            dropUserIsVoter[userID] = voted;
+            if (voted) {
+                bot.sendMessage({
+                    to: channelID,
+                    message: "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n"
+                });
+            }
+        } 
+
+    });
+    
     return 1;
 }
 
 bot.on('message', function (user, userID, channelID, message, evt) {
-
+   
     // Exit if it's DropBot.
     if (userID == DROPBOT_ID || userID == DEV_DROPBOT_ID) return 0;
 
@@ -1053,8 +1184,16 @@ bot.on('message', function (user, userID, channelID, message, evt) {
             console.error("ERROR: Channel " + channelID + " does not exist.");
             return 3;
         } else {
-            console.log("Sending to DMChannel " + channelID);
-            var message =  'Hey, ' + user + "!\n\n";
+            if (DEBUG_MESSAGE) {
+                console.log("--------- New DMChannel command ---------");
+                console.log("  User    : " + userID + " - " + user + "#" + dmChannel.recipient.discriminator);
+                console.log("  Channel : " + channelID);	
+                console.log("  Time    : " + dateTime.toISOString());
+                console.log("  message : " + message);
+                console.log("-----------------------------------------");  
+            } 
+            
+            var message =  "Hey, <@!" + userID + ">!\n\n";
             message += 'Add DropBot to a Discord server and see help by sending a \"db!help\" message in a channel with DropBot active.\n'; 
             message += "Author   : <@" + DEVSHANS_ID + ">\n";
             message += "GitHub   : https://github.com/devshans/DropBot\n";        
@@ -1099,6 +1238,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         return 3;
     }      
 
+    // Main debug code block for application.
+    // Logged on every successful message being parsed past the intial sanitation and DM feedback.
     if (DEBUG_MESSAGE) {
         console.log("------------- New command -------------");
         console.log("  User    : " + userID + " - " + user + "#" + userDisc);
@@ -1111,83 +1252,248 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     
     args = message.substring(3).split(' ');
 
-    if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {        
-        if (DEBUG_DATABASE) console.log("Attempting to read user from DB ", userID);
+    // First access from a server since reboot or new server.
+    if (serverInitialized[guildID] === undefined || serverInitialized[guildID] == false) {
+        if (DEBUG_MESSAGE) console.log("First access from server since at least reboot: ", guildID);
+        serverInitialized[guildID] = false;
+
+        initGuildDatabase(guildName, guildID).then(result => {
+            if (DEBUG_MESSAGE) console.log("initGuildDatabase success.");
+        }).catch(err => {
+            console.error("ERROR initGuildDatabase:\n", err);
+        }).then(() => {
+
+            initGuild(guildID).then(function(result) {
+                if (DEBUG_MESSAGE) console.log("initGuild success.");
+                serverInitialized[guildID] = true;
+
+                // For the case of using a new server only, we treat the user as new as well.
+                //   If the user is banned, the script will already have exited above.
+                epochTime = dateTime.getTime();
+                dropUserTimeout[userID] = epochTime;
+                dropUserStrikes[userID] = 0;
+                dropUserStrikes[userID] = 0;
+                dropUserBlocked[userID] = false;
+                dropUserWarned[userID]  = false;
+
+                if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
+		    initUser(user, userID, userDisc, epochTime).then(result => {
+                        dropUserInitialized[userID] = true;
+		        if (DEBUG_DATABASE) console.log(result);
+		    }).catch(err => {
+		        console.error("ERROR initUser in initGuild: ", err);
+		    });
+                } else {
+		    updateUser(userID, epochTime, false).then(result => {
+		        if (DEBUG_DATABASE) console.log(result);
+		    }).catch(err => {
+		        console.error("ERROR updateUser in initGuild: ", err);
+		    });                    
+                }
+                
+                // Handle command only once the server has been initialized.
+                //   The user will already have been set up above.
+                // The script will exit in the return block below.
+                //   No additional code in this function will be executed.
+                handleCommand(args, userID, channelID, guildID);                
+            }, function(err) {
+                console.error("ERROR initGuild:\n", err);
+            });
+	    
+        });
+
+        // Do not execute anymore code in this function.
+        // User and server are treated as new and command will be sent if setup was successful.
+        return 0;
+    }  
+    
+
+    // *** All users will be scanned at initialization.
+    // This will need to be scaled at heavy user loads but allows us to
+    //   handle all commands immediately without doing 1 or more database accesses.
+    // Servers below handle commands coming in only after they have been intialized.
+    if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
+        if (DEBUG_MESSAGE) console.log("Detected NEW user sending message: ", userID);
         readUser(userID).then(result => {
 
-	    if (result.Item != null) {
-		if (DEBUG_DATABASE) console.log("Found user ", userID);
+	    if (result.Item != null) { // Should never occur since all users initialized
+		if (DEBUG_DATABASE) console.log("Found existing user ", userID);
+                //fixme - SPS. If we never see this message, delete the whole if block.
+                console.log("*** SPS - This should never happen...");
                 dropUserTimeout[userID] = result.Item.accessTime;
                 dropUserStrikes[userID] = 0; // Always reset when server reloads
                 dropUserBlocked[userID] = result.Item.blocked;
+                dropUserIsVoter[userID] = true;
                 dropUserInitialized[userID] = true;
+	    } else {
+		initUser(user, userID, userDisc, epochTime).then(result => {
+		    if (DEBUG_DATABASE) console.log(result);
+		}).catch(err => {
+		    console.error("ERROR initUser: ", err);
+		});
 	    }
 
         }).catch((err) => {
-            console.log("Error: ", err);
+            console.error("Error: ", err);
             return 3;
         });
     }
 
-    if (dropUserBlocked[userID] == true || dropUserStrikes[userID] == USER_MAX_STRIKES) {
+    //fixme - SPS. Only send so many messages to each blocked user.
+    //  At some point, we have to ignore them. Counter can be reset at bot restart.
+    if (STRIKE_SYSTEM_ENABLED) {
+	if (dropUserBlocked[userID] || dropUserStrikes[userID] == USER_MAX_STRIKES) {
 
-        if (dropUserBlocked[userID] == false) {
-            dropUserBlocked[userID]  = true;
-            updateUser(userID, epochTime, true);
-        }
-        args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "]. User blocked due to rate limiting.\n" +
-		"Please wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
-        console.log("User max strikes: " + userID + " too many requests.");
-        handleCommand(args, userID, channelID, guildID);
-        return 3;
+            if (dropUserBlocked[userID] == false) {
+		dropUserBlocked[userID]  = true;
+		updateUser(userID, epochTime, true);
+            }
+            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "].\n" + "<@!" + userID + "> blocked due to rate limiting.\n" +
+		    "Please wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
+            console.log("BLOCKED: User - " + user + "[" + userID + "] due to max strikes of rate limiting.");
+            handleCommand(args, userID, channelID, guildID);
+            return 3;
+	}
     }
 
+    // If a user has already been blocked in the database, we don't care about the strike system being enabled.
+    //   It is possible they were blocked for another reason.
+    else { // if (! (STRIKE_SYSTEM_ENABLED))
+        if (dropUserBlocked[userID]) {
+            args = ["error", "<@!" + userID + "> blocked due to previous violations.\n" +
+		    "Please contact developer devshans0@gmail.com if you think this was in error."];
+            console.log("BLOCKED: User - " + user + "[" + userID + "] tried to access without strike system enabled.");
+            handleCommand(args, userID, channelID, guildID);
+            return 3;
+        }
+    }
 
-    if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID].length == 0) {         
+    if (args[0] == 'vote') {
 
-        console.log("Initializing user: ", userID);
-        initUser(user, userID, userDisc, epochTime).then(result => {
-            console.log(result);
-        }).catch(err => {
-            console.log("COULD NOT detect user");
-            console.log(err);
-        });
-    } else {
-        updateUser(userID, epochTime, false);
-        if (args[0] != 'stop') {
-            if (((epochTime - dropUserTimeout[userID])/1000) < USER_TIMEOUT_SEC) {
-                dropUserStrikes[userID] = dropUserStrikes[userID]+1;
-                args = ["error", "Please wait " + USER_TIMEOUT_SEC + " seconds in between each command. Strike " + dropUserStrikes[userID] + "/" + USER_MAX_STRIKES];
-                console.log("User error: ID: " + userID + " too many requests.");
+        dbl.hasVoted(userID).then(voted => {
+	    if (DEBUG_VOTE) console.log("*DBL* VOTE command: Changing " + userID + " voter status to " + voted);
+            if (! (voted)) {
+                dropUserIsVoter[userID] = false;
+                dropUserWarned[userID] = true;
+                sendMessage  = "\u200B<@!" + userID + "> has NOT yet voted in the last 24 hours.\n";
+                sendMessage += "If you just voted, wait about a minute or 2 for it to process.\n";
+                sendMessage += "You are rate limited to using one command every " + NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
+		sendMessage += "To lessen restriction to " + VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
+                sendMessage += "You may check if your vote has been processed immediately and without penalty with \"db!vote\"";
+                args = ["error", sendMessage];
                 handleCommand(args, userID, channelID, guildID);
                 return 1;
-            }
-        }
-        dropUserStrikes[userID] = 0;
-    }
+            } else {
+		dropUserIsVoter[userID] = true;
+		dropUserWarned[userID]  = false;
 
-    if (serverDropLocations[guildID] === undefined || serverDropLocations[guildID].length == 0) {
-        console.log("First access from server: ", guildID);
+                epochTime = dateTime.getTime();
+                dropUserStrikes[userID] = 0;
+                dropUserTimeout[userID] = epochTime;
+                dropUserStrikes[userID] = 0;
+                dropUserBlocked[userID] = false;
+                dropUserWarned[userID]  = false;
 
-        initGuildDatabase(guildName, guildID).then(result => {
-            //console.log(result);
-            console.log("Initialized server.");
-        }).catch(err => {
-            console.log("COULD NOT detect guild");
-        }).then(() => {
-
-            initGuild(guildID).then(function(result) {
-                handleCommand(args, userID, channelID, guildID);
-            }, function(err) {
-                console.log(err);
-            });
+                updateUser(userID, epochTime, false).then(result => {
+                    sendMessage  = "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
+                    args = ["error", sendMessage];
+                    handleCommand(args, userID, channelID, guildID);                    
+                }).catch((err) => {
+                    console.error("ERROR vote command update: ", err);
+                });
+                                
+		return 0;
+	    }
+        }).catch((err) => {
+            console.error("ERROR: dbl.hasVoted\n", err);
+            return 3;
         });
-
-    } else {
-        handleCommand(args, userID, channelID, guildID);
+        
+        return 0;
     }
 
+
+    // The fun part... Handling rate limiting and vote status for repeated users.
+    var timeout_sec = dropUserIsVoter[userID] ? VOTE_USER_TIMEOUT_SEC : NO_VOTE_USER_TIMEOUT_SEC;
+    if (args[0] == 'stop') timeout_sec = 1; // Use minimum rate limiting for realtime commands.
+
+    var timeSinceLastCommand = Math.ceil((epochTime-dropUserTimeout[userID])/1000);
+    if (DEBUG_MESSAGE) console.log("User " + userID + " time since last command: " + timeSinceLastCommand);
     
+    if (timeSinceLastCommand < timeout_sec && !(isDevUser)) {
+
+        var sendMessage = "";
+        dropUserStrikes[userID] = dropUserStrikes[userID]+1;
+        
+        if (! (dropUserIsVoter[userID])) {
+
+            dbl.hasVoted(userID).then(voted => {
+		if (DEBUG_VOTE) console.log("*DBL* Before: Changing " + userID + " voter status to " + voted);
+                if (! (voted)) {
+
+                    if (DEBUG_MESSAGE) console.log("Non-vote restricted " + timeSinceLastCommand + " seconds for user: " + userID);
+		    
+		    if (! (dropUserWarned[userID])) {
+
+			var sendWarnMessage = "\u200B";
+			sendWarnMessage +"<@!" + userID + "> is temporarily rate limited to using one command every " + NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
+			sendWarnMessage += "Due to server constraints, users must be verified to use DropBot within the last 24 hours.\n";
+			sendWarnMessage += "To lessen restriction to " + VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
+			if (STRIKE_SYSTEM_ENABLED) sendWarnMessage += "Strike " + dropUserStrikes[userID] + "/" + USER_MAX_STRIKES;
+			dropUserWarned[userID] = true;
+
+			setTimeout(function() {
+			    bot.sendMessage({
+				to: channelID,
+				message: sendWarnMessage
+			    });
+			}, 500);
+
+		    }
+
+                    sendMessage  = "\u200B<@!" + userID + "> please wait " + (timeout_sec-timeSinceLastCommand) +
+                        " second(s) before issuing another command.\n" +
+                        "You may check if your vote has been processed immediately and without penalty with \"db!vote\"";
+                    args = ["error", sendMessage];
+                    handleCommand(args, userID, channelID, guildID);
+                    return 1;
+                } else {
+		    dropUserIsVoter[userID] = true;
+		    dropUserWarned[userID]  = false; //fixme - SPS. May be redundant...
+		    console.log("User " + userID + " has voted! Setting dropUserIsVoter to true.");
+                    sendMessage  = "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
+                    args = ["error", sendMessage];
+                    handleCommand(args, userID, channelID, guildID);		    
+		    return 0;
+		}
+            }).catch((err) => {
+                console.error("ERROR: dbl.hasVoted\n", err);
+                return 3;
+            });
+            
+        } else {
+	    args = ["error", "<@!" + userID + "> please wait " + (timeout_sec-timeSinceLastCommand) + " second(s) before issuing another command.\n"];
+            handleCommand(args, userID, channelID, guildID);            
+        }
+        
+        return 1;
+        
+    }
+
+    // Update last access time and related stats if command succeeded
+    epochTime = dateTime.getTime();
+    dropUserStrikes[userID] = 0;
+    dropUserTimeout[userID] = epochTime;
+    dropUserStrikes[userID] = 0;
+    dropUserBlocked[userID] = false;
+    dropUserWarned[userID]  = false;
+
+    updateUser(userID, epochTime, false).then(result => {
+        handleCommand(args, userID, channelID, guildID);
+    }).catch((err) => {
+        console.error("ERROR bot.on(message): ", err);
+    });  
+        
 }); // bot.on(message)
 
 // ----------------------------------------------------------------------------------------
