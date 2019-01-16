@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 4.2.0
+    @version    : 4.3.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -465,7 +465,7 @@ function dblPostStats(serverCount) {
 }
 
 bot.on('ready', function (evt) {
-    console.log('Connected');
+    console.log('Connected top DropBot Discord client');
     console.log('Logged in as: ' + bot.username + ' - (' + bot.id + ')');
 
     // Send serverCount to DBL at startup and then every 30 minutes.
@@ -563,9 +563,8 @@ async function handleCommand(args, userID, channelID, guildID) {
     // List all possible commands and usage.
     case 'h':
     case 'help':
-        message =  '\u200BDropBot\n';
-        message += 'Runs by sending \"db!\" message in a Discord server with DropBot active.\n';
-        message += '   Will randomly choose a location in Fortnite to drop.\n\n';
+        message =  '\u200BDropBot Help\n';
+        message += 'Add DropBot to a Discord server and see help by sending a \"db!help\" message in a channel with DropBot active.\n'; 
         message += "Built using node.js and discord.io.\n";
         message += '```';
         message += "Author   : devshans\n";
@@ -740,6 +739,7 @@ async function handleCommand(args, userID, channelID, guildID) {
 
         message  = "\u200B\n";
         message += "DropBot - Randomly select a location to start/drop in for the Fortnite Battle Royale Game.\n";
+        message += 'Add DropBot to a Discord server and see help by sending a \"db!help\" message in a channel with DropBot active.\n';         
         message += "```";
         message += "Bot usage help : \"db!help\"\n";
         message += "Server settings: \"db!settings\"\n";
@@ -982,7 +982,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     if (userID == DROPBOT_ID || userID == DEV_DROPBOT_ID) return 0;
 
     var isDevUser = (DEVSHANS_ID == userID);
-    var maxMessageLength = isDevUser ? 20 : 12;
+    var maxMessageLength = isDevUser ? 50 : 12;
 
     //fixme - SPS. Make a counter to see if this continues to happen and report user.    
     // If a user is banned, do not allow them to continue spamming the bot.
@@ -991,13 +991,38 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     // Our bot needs to know if it will execute a command
     // It will listen for messages that will start with `db!`
     var origMessage = message;
-    message = message.toLowerCase();
+    message = message.trim().replace(/ +(?= )/g,'').toLowerCase();
     if (message.substring(0, 3) != "db!") return 0;
 	
     var args = message.split(' ');
    
     var dateTime = new Date();
     var epochTime = dateTime.getTime();
+
+    var channel = bot.channels[channelID];
+
+    // If this is a direct message, respond to user with guide on usage.
+    if (channel === undefined) { 
+        var dmChannel = bot.directMessages[channelID];
+        if (dmChannel === undefined) {
+            console.error("ERROR: Channel " + channelID + " does not exist.");
+            return 3;
+        } else {
+            console.log("Sending to DMChannel " + channelID);
+            var message =  'Hey, ' + user + "!\n\n";
+            message += 'Add DropBot to a Discord server and see help by sending a \"db!help\" message in a channel with DropBot active.\n'; 
+            message += "Author   : <@" + DEVSHANS_ID + ">\n";
+            message += "GitHub   : https://github.com/devshans/DropBot\n";        
+            message += "Bot Link : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
+            message += 'Discord support server: https://discord.gg/YJWEsvV \n';
+            
+            bot.sendMessage({
+		to: channelID,
+		message: message
+	    });
+        }
+        return 0;
+    } 
 
     var guildID = bot.channels[channelID].guild_id;
     var guildName = bot.servers[guildID].name;
