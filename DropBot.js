@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 4.4.1
+    @version    : 4.5.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -930,15 +930,20 @@ async function handleCommand(args, userID, channelID, guildID) {
                     if (member.user_id == userID) {
 			voiceChannelID = c;
 
-			if (DEBUG_COMMAND) console.log('Talking on channel ID: ' + c);
+			if (DEBUG_COMMAND) console.log('Talking on channel : ' + channels[c].name + " [" + c + "]");
 
 			bot.joinVoiceChannel(c, function(error, events) {
                             if (error) {
+                                var sendMessage = "\u200B";
+                                sendMessage += "<@!" + userID + ">, <@!" + DROPBOT_ID + "> is having trouble communicating in this voice channel.\n";
+                                sendMessage += "This can happen if you have restricted channel permissions.\n";
+                                sendMessage += "If <@!" + DROPBOT_ID + "> is already active, wait until it\'s done speaking or use \"db!stop\"\n";
+                                sendMessage += "If all else fails, use \"db!mute\" to force <@!" + DROPBOT_ID + "> to only communicate in text channels.";
 				bot.sendMessage({
                                     to: channelID,
-                                    message: 'DropBot is already active in this voice channel. Wait until it\'s done.'
+                                    message: sendMessage
 				});
-				//return console.error(error);
+                                console.log("WARNING: Voice channel active/permissions issue for " + channels[c].name + " [" + c + "]");
                                 return 1;
                             }
 
