@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 4.3.0
+    @version    : 4.4.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -22,7 +22,9 @@
 	   * discord.io : https://github.com/izy521/discord.io
 */
 
-const DEBUG_VERBOSE = true;
+var DEBUG_ON_MESSAGE  = true;
+var DEBUG_COMMAND     = false;
+var DEBUG_DATABASE    = false;
 
 var Discord = require('discord.io');
 var rwc     = require('random-weighted-choice');
@@ -247,7 +249,7 @@ async function updateUser(userID, accessTime, blocked) {
 
     return new Promise(function(resolve, reject) {
 
-        console.log("updateUser for user: ", userID);
+        if (DEBUG_DATABASE) console.log("updateUser for user: ", userID);
 
         var params = {
             TableName: dbTableUsers,
@@ -266,11 +268,10 @@ async function updateUser(userID, accessTime, blocked) {
 
         docClient.update(params).promise().then(function(result) {
             dropUserTimeout[userID] = accessTime;
-            console.log("Successfully updated user database entry.");
+            if (DEBUG_DATABASE) console.log("Successfully updated user database entry.");
             resolve(result);
         }, function(err) {
-            console.log("Failed to update user database entry");
-            console.log(err);
+            console.error("ERROR: Failed to update user database entry:\n", err);
             reject(err);
         });
 
@@ -298,7 +299,7 @@ async function resetAllUserBans() {
 
 function resetAllUserBanScan(err, data) {
     if (err) {
-        console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
+        console.error("ERROR resetAllUserBanScan: Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
     } else {
         // Log and reset all banned users
         console.log("Scan succeeded.");
@@ -322,7 +323,7 @@ async function updateGuildDrops(guildID) {
 
     return new Promise(function(resolve, reject) {
 
-        console.log("updateGuildDrops for server: ", guildID);
+        if (DEBUG_DATABASE) console.log("updateGuildDrops for server: ", guildID);
 
         var stringDB = serverDropLocations[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
 
@@ -340,11 +341,10 @@ async function updateGuildDrops(guildID) {
         };
 
         docClient.update(params).promise().then(function(result) {
-            console.log("Successfully updated entry.");
+            if (DEBUG_DATABASE) console.log("Successfully updated entry.");
             resolve(result);
         }, function(err) {
-            console.log("Failed to update database entry");
-            console.log(err);
+            console.error("ERROR updateGuildDrops: Failed to update database entry.\n", err);
             reject(err);
         });
 
@@ -356,7 +356,7 @@ async function updateGuildAudioMute(guildID) {
 
     return new Promise(function(resolve, reject) {
 
-        console.log("updateGuildAudioMute for server: ", guildID, " to ", serverAudioMute[guildID]);
+        if (DEBUG_DATABASE) console.log("updateGuildAudioMute for server: ", guildID, " to ", serverAudioMute[guildID]);
 
         var params = {
             TableName: dbTableGuilds,
@@ -375,8 +375,7 @@ async function updateGuildAudioMute(guildID) {
             console.log("Successfully updated entry.");
             resolve(result);
         }, function(err) {
-            console.log("Failed to update database entry");
-            console.log(err);
+            console.error("ERROR updateGuildAudioMute: Failed to update database entry.\n", err);
             reject(err);
         });
 
@@ -412,7 +411,7 @@ async function initDefaultWeights(guildID) {
             resolve(defaultWeights);
 
         }).catch((e) => {
-            console.log("Error in: ", e);
+            console.error("ERROR initDefaultWeights:\n", e);
             reject(e);
         });
     });
@@ -425,7 +424,7 @@ async function initGuild(guildID) {
 
         var promises = [];
 
-        console.log("Getting dropLocation weights for server: ", guildID);
+        if (DEBUG_DATABASE) console.log("Getting dropLocation weights for server: ", guildID);
 
         if (serverDropLocations[guildID] != null && serverDropLocations[guildID].length > 0) {
             console.log("serverDropLocations already set.");
@@ -451,7 +450,7 @@ async function initGuild(guildID) {
             }
             resolve(serverDropLocations[guildID]);
         }).catch((e) => {
-            console.log("Error: ", e);
+            console.error("ERROR initGuild:\n", e);
             reject(e);
         });
 
@@ -465,7 +464,7 @@ function dblPostStats(serverCount) {
 }
 
 bot.on('ready', function (evt) {
-    console.log('Connected top DropBot Discord client');
+    console.log('DropBot Discord client is connected and ready.');
     console.log('Logged in as: ' + bot.username + ' - (' + bot.id + ')');
 
     // Send serverCount to DBL at startup and then every 30 minutes.
@@ -503,7 +502,7 @@ async function handleCommand(args, userID, channelID, guildID) {
     var cmd = args[0];
     message = "";
 
-    console.log("handleCommand: user=" + userID + " - " +  args);
+    if (DEBUG_COMMAND) console.log("handleCommand: user=" + userID + " - " +  args);
 
     args = args.splice(1);
 
@@ -514,17 +513,38 @@ async function handleCommand(args, userID, channelID, guildID) {
         console.log("Running command from dev user: ", userID);
         
         switch(cmd) {
+
+        // Toggle debug messages on/off.
+        case 'debug_on_message':
+            DEBUG_ON_MESSAGE = !DEBUG_ON_MESSAGE;
+            message = "\u200BSet DEBUG_ON_MESSAGE to " + DEBUG_ON_MESSAGE;
+            break;
+        case 'debug_command':
+            DEBUG_COMMAND = !DEBUG_COMMAND;
+            message = "\u200BSet DEBUG_COMMAND to " + DEBUG_COMMAND;
+            break;
+        case 'debug_database':
+            DEBUG_DATABASE = !DEBUG_DATABASE;
+            message = "\u200BSet DEBUG_DATABASE to " + DEBUG_DATABASE;
+            break;
+
+        case 'view_debug':
+            message = "\u200BDebug flag status:";
+            message = "DEBUG_ON_MESSAGE : " + DEBUG_ON_MESSAGE;
+            message = "DEBUG_COMMAND    : " + DEBUG_COMMAND;
+            message = "DEBUG_DATABASE   : " + DEBUG_DATABASE;
+            break;
             
         case 'resetban':
             if (args.length < 1) {
                 message = "\u200BPlease specify user ID to unban.";
                 break;
             }
-            var banUserID = args[0]; //fixme - SPS. Check that this is a number. But casting it will round.
-            message = "\u200BResetting ban for user ID: " + banUserID;
-            updateUser(banUserID, (new Date).getTime(), false).then(result => {
+            var otherUserID = args[0]; 
+            message = "\u200BResetting ban for user ID: " + otherUserID;
+            updateUser(otherUserID, (new Date).getTime(), false).then(result => {
 
-                dropUserBlocked[banUserID] = false;
+                dropUserBlocked[otherUserID] = false;
                 setTimeout(function() {
                     bot.sendMessage({
                         to: channelID,
@@ -533,7 +553,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 }, 200);
                 
             }).catch((e) => {
-                console.log("Error: ", e);
+                console.error("ERROR resetban: ", e);
                 setTimeout(function() {
                     bot.sendMessage({
                         to: channelID,
@@ -553,7 +573,25 @@ async function handleCommand(args, userID, channelID, guildID) {
                 });
             }, 200);
             break;
-        }
+
+        case 'dumpuser':
+            if (args.length < 1) {
+                message = "\u200BPlease specify user ID to check for voting.";
+                break;
+            }
+            var otherUserID = args[0];
+
+            message = "```";
+            message += "--- Current state of user in DropBot ---\n";
+            message += "  dropUserID      - " + dropUserInitialized[otherUserID] + "\n";
+            message += "  dropUserTimeout - " + dropUserTimeout[otherUserID] + "\n";
+            message += "  dropUserStrikes - " + dropUserStrikes[otherUserID] + "\n";
+            message += "  dropUserBlocked - " + dropUserBlocked[otherUserID] + "\n";
+            message += "```";
+            
+            break;
+
+        } // dev switch(cmd)
     }
 
     // User commands.
@@ -569,7 +607,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += '```';
         message += "Author   : devshans\n";
         message += "GitHub   : https://github.com/devshans/DropBot\n";        
-        message += "Bot Link : https://discordbots.org/bot/487298106849886224\n";
+        message += "Bot Link : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
         message += 'Discord support server: https://discord.gg/YJWEsvV \n\n';
         message += 'usage: db![option]\n\n';
         message += 'db![option]            Description\n';
@@ -578,7 +616,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += 'db!mute              : Mutes DropBot audio in voice channel.\n';
         message += 'db!unmute            : Unmutes DropBot audio. Requires user by in voice channel.\n';
 	message += 'db!settings          : Shows only DropBot settings on this server.\n';
-        message += 'db!info              : Shows DropBot settings on this server and additional help.\n';
+        message += 'db!info              : Shows DropBot information and links/commands for additional help.\n';
         message += 'db!stop              : Stop playing audio and remove DropBot from voice channel.\n';
 	message += 'db!help              : Show this help message again.\n';
         message += 'db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.\n';
@@ -729,7 +767,7 @@ async function handleCommand(args, userID, channelID, guildID) {
             }, 500);
 
         }).catch((e) => {
-            console.log("Error: ", e);
+            console.error("ERROR updateGuildDrops: ", e);
         });
 
         break;
@@ -747,7 +785,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += "Author           : devshans\n";
         message += "Email            : devshans0@gmail.com\n"
         message += "GitHub           : https://github.com/devshans/DropBot\n";
-        message += "Bot Link         : https://discordbots.org/bot/487298106849886224\n";
+        message += "Bot Link         : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
         message += "Support Discord  : https://discord.gg/YJWEsvV\n\n";
         message += "```";
         break;
@@ -839,18 +877,18 @@ async function handleCommand(args, userID, channelID, guildID) {
         var dropChance;
 
         if (dropLocationID == null) {
-            console.log("ERROR: Could not select a drop location.");
+            console.error("ERROR: Could not select a drop location.");
             message = "\u200BERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
             break;
         }
 
-        console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNames[dropLocationID]);
+        if (DEBUG_COMMAND) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNames[dropLocationID]);
 
         if (serverDropLocations[guildID][dropLocationID]['weight']) {
             dropChance = serverDropLocations[guildID][dropLocationID]['weight'] / serverDropWeights[guildID] * 100;                
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
-            console.log("ERROR: dropLocationID " + dropLocationID + " is undefined");
+            console.error("ERROR: dropLocationID " + dropLocationID + " is undefined");
             message = "\u200BERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
             break;
         }
@@ -890,7 +928,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                     if (member.user_id == userID) {
 			voiceChannelID = c;
 
-			console.log('Talking on channel ID: ' + c);
+			if (DEBUG_COMMAND) console.log('Talking on channel ID: ' + c);
 
 			bot.joinVoiceChannel(c, function(error, events) {
                             if (error) {
@@ -1052,32 +1090,26 @@ bot.on('message', function (user, userID, channelID, message, evt) {
             handleCommand(args, userID, channelID, guildID);
         }
         return 3;
-    }
-    
-    
-    if (DEBUG_VERBOSE) {
-        console.log("--- New command ---");
-        console.log("User       :  " + user + "#" + userDisc);
-        console.log("User ID    : ", userID);
-        console.log("Channel    : ", bot.channels[channelID].name);	
-        console.log("Channel ID : ", channelID);
-        console.log("Guild      : ", guildName);	
-        console.log("Guild ID   : ", guildID);
-        console.log("Time       : ", dateTime.toISOString());
-        console.log("Time (ms)  : ", epochTime);
-        console.log("message    : ", message);
-        console.log("-------------------");
-        console.log("");
-    }
+    }      
 
+    if (DEBUG_ON_MESSAGE) {
+        console.log("------------- New command -------------");
+        console.log("  User    : " + userID + " - " + user + "#" + userDisc);
+        console.log("  Channel : " + channelID + " - " + bot.channels[channelID].name);	
+        console.log("  Guild   : " + guildID + " - " + guildName);	
+        console.log("  Time    : " + dateTime.toISOString());
+        console.log("  message : " + message);
+        console.log("---------------------------------------");  
+    } 
     
     args = message.substring(3).split(' ');
 
     if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {        
-        console.log("Reading user... ", userID);
+        if (DEBUG_DATABASE) console.log("Attempting to read user from DB ", userID);
         readUser(userID).then(result => {
 
 	    if (result.Item != null) {
+		if (DEBUG_DATABASE) console.log("Found user ", userID);
                 dropUserTimeout[userID] = result.Item.accessTime;
                 dropUserStrikes[userID] = 0; // Always reset when server reloads
                 dropUserBlocked[userID] = result.Item.blocked;
@@ -1145,7 +1177,6 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         });
 
     } else {
-        console.log("Server already initialized ", guildID);
         handleCommand(args, userID, channelID, guildID);
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "DropBot",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "Discordapp bot that randomly selects a location to start/drop in for the Fortnite Battle Royale game.",
   "main": "DropBot.js",
   "repository": {
