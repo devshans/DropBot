@@ -2,6 +2,12 @@
 <p align="center"><img src="https://cdn.discordapp.com/avatars/487298106849886224/11a7eff4af1922c251ccb371599c14a2.png"></p>
 <h1 align="center">Fortnite DropBot</h1>
 
+<p align="center">
+  <a href="https://discordbots.org/bot/487298106849886224" >
+    <img src="https://discordbots.org/api/widget/487298106849886224.svg" alt="DropBot" />
+  </a>
+</p>
+
 ## Description
 Automated Bot for Discord VoIP application and digital distribution platform. 
 
