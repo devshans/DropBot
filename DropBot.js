@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 4.4.0
+    @version    : 4.4.1
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -22,9 +22,9 @@
 	   * discord.io : https://github.com/izy521/discord.io
 */
 
-var DEBUG_ON_MESSAGE  = true;
-var DEBUG_COMMAND     = false;
-var DEBUG_DATABASE    = false;
+var DEBUG_MESSAGE  = true;
+var DEBUG_COMMAND  = false;
+var DEBUG_DATABASE = false;
 
 var Discord = require('discord.io');
 var rwc     = require('random-weighted-choice');
@@ -515,24 +515,26 @@ async function handleCommand(args, userID, channelID, guildID) {
         switch(cmd) {
 
         // Toggle debug messages on/off.
-        case 'debug_on_message':
-            DEBUG_ON_MESSAGE = !DEBUG_ON_MESSAGE;
-            message = "\u200BSet DEBUG_ON_MESSAGE to " + DEBUG_ON_MESSAGE;
+        case 'debugmessage':
+            DEBUG_MESSAGE = !DEBUG_MESSAGE;
+            message = "\u200BSet DEBUG_MESSAGE to " + DEBUG_MESSAGE;
             break;
-        case 'debug_command':
+        case 'debugcommand':
             DEBUG_COMMAND = !DEBUG_COMMAND;
             message = "\u200BSet DEBUG_COMMAND to " + DEBUG_COMMAND;
             break;
-        case 'debug_database':
+        case 'debugdatabase':
             DEBUG_DATABASE = !DEBUG_DATABASE;
             message = "\u200BSet DEBUG_DATABASE to " + DEBUG_DATABASE;
             break;
 
-        case 'view_debug':
+        case 'viewdebug':
             message = "\u200BDebug flag status:";
-            message = "DEBUG_ON_MESSAGE : " + DEBUG_ON_MESSAGE;
-            message = "DEBUG_COMMAND    : " + DEBUG_COMMAND;
-            message = "DEBUG_DATABASE   : " + DEBUG_DATABASE;
+            message += "```";
+            message += "DEBUG_MESSAGE  : " + DEBUG_MESSAGE + "\n";
+            message += "DEBUG_COMMAND  : " + DEBUG_COMMAND + "\n";
+            message += "DEBUG_DATABASE : " + DEBUG_DATABASE + "\n";
+            message += "```";
             break;
             
         case 'resetban':
@@ -1092,7 +1094,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         return 3;
     }      
 
-    if (DEBUG_ON_MESSAGE) {
+    if (DEBUG_MESSAGE) {
         console.log("------------- New command -------------");
         console.log("  User    : " + userID + " - " + user + "#" + userDisc);
         console.log("  Channel : " + channelID + " - " + bot.channels[channelID].name);	
