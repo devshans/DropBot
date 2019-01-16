@@ -15,14 +15,12 @@ Hosted on AWS.
 
 ## Add DropBot to server:
 
-
-
 [Add to Discord](https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&permissions=0):
 https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&permissions=0
 
 ### Usage instructions:
 ```
-Runs by sending "db!" message in a Discord server with DropBot active.
+Add DropBot to a Discord server and see help by sending a "db!help" message in a channel with DropBot active.
    Will randomly choose a location in Fortnite to drop.
 
 Optional features:
@@ -30,11 +28,15 @@ usage: db![option]
 
 db![option]    Description
 -----------------------
-db!            Randomly choose a Fortnite location to drop based on server settings.
-db!mute        Mutes DropBot audio in voice channel.
-db!unmute      Unmutes DropBot audio. Requires user by in voice channel.
-db!info        Shows DropBot settings on this server
-db!stop        Stop playing audio and remove DropBot from voice channel.
+db!                  : Randomly choose a Fortnite location to drop based on server settings.
+db!mute              : Mutes DropBot audio in voice channel.
+db!unmute            : Unmutes DropBot audio. Requires user by in voice channel.
+db!settings          : Shows only DropBot settings on this server.
+db!info              : Shows DropBot information and links/commands for additional help.
+db!stop              : Stop playing audio and remove DropBot from voice channel.
+db!help              : Show this help message again.
+db!vote              : Check and update bot vote status within the last 24 hours without rate limit penalty.
+db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.
 
 -----------------------
 db!set [id] [weight]
