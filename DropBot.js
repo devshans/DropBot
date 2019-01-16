@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 5.0.0
+    @version    : 5.1.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -212,7 +212,8 @@ async function initUser(userName, userID, userDisc, accessTime) {
         userPromise.then(function(result) {
 
             if (result.Item == null) {
-                console.log("Creating NEW user database entry: " + userName + "[" + userID + "]");
+                if (DEBUG_DATABASE) console.log("Creating NEW user database entry: " + userName + "#" + userDisc + "[" + userID + "]");
+                
                 var params = {
                     TableName: dbTableUsers,
                     Item:{
@@ -226,7 +227,7 @@ async function initUser(userName, userID, userDisc, accessTime) {
                 };
 
                 docClient.put(params).promise().then(function(result) {
-                    console.log("Successfully created entry.");
+                    if (DEBUG_DATABASE) console.log("Successfully created new user entry.");
                     dropUserTimeout[userID] = accessTime;
                     dropUserStrikes[userID] = 0;
                     dropUserBlocked[userID] = false;
@@ -278,7 +279,7 @@ async function updateUser(userID, accessTime, blocked) {
             if (DEBUG_DATABASE) console.log("Successfully updated user database entry.");
             resolve(result);
         }, function(err) {
-            console.error("ERROR: Failed to update user database entry:\n", err);
+            console.error("ERROR updateUser: Failed to update user database entry:\n", err);
             reject(err);
         });
 
@@ -695,7 +696,6 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += 'db!info              : Shows DropBot information and links/commands for additional help.\n';
         message += 'db!stop              : Stop playing audio and remove DropBot from voice channel.\n';
 	message += 'db!help              : Show this help message again.\n';
-	message += 'db!vote              : Check and update bot vote status within the last 24 hours without rate limit penalty.\n';
         message += 'db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.\n';
         message += '----------------------------------\n';
         message += '```';
@@ -1140,6 +1140,8 @@ async function handleCommand(args, userID, channelID, guildID) {
         if (dropUserIsVoter[userID] != voted) {
             dropUserIsVoter[userID] = voted;
             if (voted) {
+                dropUserWarned[userID]  = false;
+                if (DEBUG_VOTE) console.log("***** VOTE 1 CHANGED TO YES FOR USER ID " + userID);
                 bot.sendMessage({
                     to: channelID,
                     message: "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n"
@@ -1311,32 +1313,23 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     // *** All users will be scanned at initialization.
     // This will need to be scaled at heavy user loads but allows us to
     //   handle all commands immediately without doing 1 or more database accesses.
-    // Servers below handle commands coming in only after they have been intialized.
+    // Servers above handle commands coming in only after they have been intialized.
+    // The server intialzation will also create the user, if necessary, and then send the command and exit
     if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
-        if (DEBUG_MESSAGE) console.log("Detected NEW user sending message: ", userID);
-        readUser(userID).then(result => {
+        if (DEBUG_MESSAGE) console.log("Detected NEW user sending message in existing server: ", userID);
 
-	    if (result.Item != null) { // Should never occur since all users initialized
-		if (DEBUG_DATABASE) console.log("Found existing user ", userID);
-                //fixme - SPS. If we never see this message, delete the whole if block.
-                console.log("*** SPS - This should never happen...");
-                dropUserTimeout[userID] = result.Item.accessTime;
-                dropUserStrikes[userID] = 0; // Always reset when server reloads
-                dropUserBlocked[userID] = result.Item.blocked;
-                dropUserIsVoter[userID] = true;
-                dropUserInitialized[userID] = true;
-	    } else {
-		initUser(user, userID, userDisc, epochTime).then(result => {
-		    if (DEBUG_DATABASE) console.log(result);
-		}).catch(err => {
-		    console.error("ERROR initUser: ", err);
-		});
-	    }
-
-        }).catch((err) => {
-            console.error("Error: ", err);
-            return 3;
-        });
+        epochTime = dateTime.getTime();
+        dropUserTimeout[userID] = epochTime;
+        dropUserStrikes[userID] = 0;
+        dropUserStrikes[userID] = 0;
+        dropUserBlocked[userID] = false;
+        dropUserWarned[userID]  = false;
+        
+	initUser(user, userID, userDisc, epochTime).then(result => {
+	    if (DEBUG_DATABASE) console.log("initUser result from on.message:\n", result);
+	}).catch(err => {
+	    console.error("ERROR initUser: ", err);
+	});
     }
 
     //fixme - SPS. Only send so many messages to each blocked user.
@@ -1387,6 +1380,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 		dropUserIsVoter[userID] = true;
 		dropUserWarned[userID]  = false;
 
+                if (DEBUG_VOTE) console.log("***** VOTE 2 CHANGED TO YES FOR USER ID " + userID);
+
                 epochTime = dateTime.getTime();
                 dropUserStrikes[userID] = 0;
                 dropUserTimeout[userID] = epochTime;
@@ -1415,7 +1410,13 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 
     // The fun part... Handling rate limiting and vote status for repeated users.
     var timeout_sec = dropUserIsVoter[userID] ? VOTE_USER_TIMEOUT_SEC : NO_VOTE_USER_TIMEOUT_SEC;
-    if (args[0] == 'stop') timeout_sec = 1; // Use minimum rate limiting for realtime commands.
+
+    // Use minimum rate limiting for realtime commands.
+    if (args[0] == 'stop') timeout_sec = 1; 
+    if (args[0] == 'i')    timeout_sec = 1;
+    if (args[0] == 'info') timeout_sec = 1; 
+    if (args[0] == 'h')    timeout_sec = 1;
+    if (args[0] == 'help') timeout_sec = 1;
 
     var timeSinceLastCommand = Math.ceil((epochTime-dropUserTimeout[userID])/1000);
     if (DEBUG_MESSAGE) console.log("User " + userID + " time since last command: " + timeSinceLastCommand);
