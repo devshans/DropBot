@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 5.2.0
+    @version    : 5.3.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -51,6 +51,11 @@ if (developerMode) {
 const DROPBOT_ID      = "487298106849886224";
 const DEV_DROPBOT_ID  = "533851604651081728";
 
+const DROPBOT_SERVER_ID        = "534217612805275658"; // Official DropBot Server
+const DROPBOT_TEST_CHANNEL_ID1 = "535268088569135116"; // dropbot-test-1
+const DROPBOT_TEST_CHANNEL_ID2 = "535268112833052672"; // dropbot-test-2
+
+
 var   DEVSHANS_ID = -1;
 
 var devFilename = "dev.json";
@@ -89,6 +94,7 @@ if (developerMode) {
     var dbTableUsers     = "DropUsers";
 }
 
+// Fortnite specific stuff
 var dropLocationNames = [
     "Dusty Divot"
     ,"Fatal Fields"
@@ -113,6 +119,7 @@ var dropLocationNames = [
     ,"Wailing Woods"
 ];
 
+// Database status in memory
 var serverInitialized   = {};
 var dropUserInitialized = {};
 
@@ -130,6 +137,26 @@ var dropIntros = [
     ,'intro2.wav'
     ,'intro3.wav'
 ];
+
+var legalCommands = [
+     "h"
+    ,"help"
+    ,"error"
+    ,"v"
+    ,"vote"
+    ,"m"
+    ,"mute"
+    ,"u"
+    ,"unmute"
+    ,"set"
+    ,"i"
+    ,"info"
+    ,"s"
+    ,"settings"
+    ,"stop"
+    ,""
+    ,"wwdb"
+]
 
 var filenameArray = __filename.split("/");
 
@@ -691,7 +718,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += '----------------------------------\n';
         message += 'db!                  : Randomly choose a Fortnite location to drop based on server settings.\n';        
         message += 'db!mute              : Mutes DropBot audio in voice channel.\n';
-        message += 'db!unmute            : Unmutes DropBot audio. Requires user by in voice channel.\n';
+        message += 'db!unmute            : Unmutes DropBot audio. Requires user to be in a voice channel.\n';
 	message += 'db!settings          : Shows only DropBot settings on this server.\n';
         message += 'db!info              : Shows DropBot information and links/commands for additional help.\n';
         message += 'db!stop              : Stop playing audio and remove DropBot from voice channel.\n';
@@ -1249,11 +1276,19 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 	args = ["error", "Do not put a space after \"db!\" and command"];
         handleCommand(args, userID, channelID, guildID);
         return 3;
-    }
-    // Fail silently if the first letter of command is anything other than a letter.
+    }    
+    // Fail silently if the first character of command is anything other than a letter.
     if (message.length > 3 && !(message[3].match(/[a-z]/i))) {
+        console.log("Ignore command - first character is not a letter.");
 	return 4;
     }
+    // Fail quietly if user does not supply a valid command.
+    if (! (isDevUser)) {
+        if (! (legalCommands.includes(message.substring(3).split(' ')[0]))) {
+            console.log("Ignore command - not a legal command.");
+            return 5;
+        }
+    }    
     // Drop commands that are too long.
     // Currently, this is the longest valid user command:
     //    db!set 20 10
@@ -1277,6 +1312,16 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         console.log("  message : " + message);
         console.log("---------------------------------------");  
     } 
+
+    // Ask to move to specific channels in Official DropBot Server
+    if (guildID == DROPBOT_SERVER_ID) { 
+        if (channelID != DROPBOT_TEST_CHANNEL_ID1 && channelID != DROPBOT_TEST_CHANNEL_ID2) {            
+            console.log("User " + user + "#" + userDisc + " [" + c + "] in DropBot Official Server. Asked to move to correct channel.");
+            args = ["error", "\u200B<@!" + userID + ">, Please join either #dropbot-test-1 or #dropbot-test-2 channels."];
+            handleCommand(args, userID, channelID, guildID);
+            return 0;
+        }
+    }
     
     args = message.substring(3).split(' ');
 
