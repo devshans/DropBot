@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 5.3.0
+    @version    : 5.4.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -212,7 +212,7 @@ async function initGuildDatabase(guildName, guildID) {
                     if (DEBUG_DATABASE) console.log("Successfully created entry.");
                     resolve(result);
                 }, function(err) {
-                    console.error("ERROR: Failed to create database entry:\n", err);
+                    console.error("ERROR: Failed to create database entry:\n" + err);
                     reject(err);
                 });
 
@@ -263,7 +263,7 @@ async function initUser(userName, userID, userDisc, accessTime) {
                     dropUserInitialized[userID] = true;
                     resolve(result);
                 }, function(err) {
-                    console.error("ERROR initUser: Failed to create database entry.\n", err);
+                    console.error("ERROR initUser: Failed to create database entry.\n" + err);
                     reject(err);
                 });
 
@@ -306,7 +306,7 @@ async function updateUser(userID, accessTime, blocked) {
             if (DEBUG_DATABASE) console.log("Successfully updated user database entry.");
             resolve(result);
         }, function(err) {
-            console.error("ERROR updateUser: Failed to update user database entry:\n", err);
+            console.error("ERROR updateUser: Failed to update user database entry:\n" + err);
             reject(err);
         });
 
@@ -381,7 +381,7 @@ async function updateGuildDrops(guildID) {
             if (DEBUG_DATABASE) console.log("Successfully updated entry.");
             resolve(result);
         }, function(err) {
-            console.error("ERROR updateGuildDrops: Failed to update database entry.\n", err);
+            console.error("ERROR updateGuildDrops: Failed to update database entry.\n" + err);
             reject(err);
         });
 
@@ -412,7 +412,7 @@ async function updateGuildAudioMute(guildID) {
             console.log("Successfully updated entry.");
             resolve(result);
         }, function(err) {
-            console.error("ERROR updateGuildAudioMute: Failed to update database entry.\n", err);
+            console.error("ERROR updateGuildAudioMute: Failed to update database entry.\n" + err);
             reject(err);
         });
 
@@ -448,7 +448,7 @@ async function initDefaultWeights(guildID) {
             resolve(defaultWeights);
 
         }).catch((e) => {
-            console.error("ERROR initDefaultWeights:\n", e);
+            console.error("ERROR initDefaultWeights:\n" + e);
             reject(e);
         });
     });
@@ -461,7 +461,7 @@ async function initGuild(guildID) {
 
         var promises = [];
 
-        if (DEBUG_DATABASE) console.log("Getting dropLocation weights for server: ", guildID);
+        if (DEBUG_DATABASE) console.log("Getting dropLocation weights for server: " + guildID);
 
         serverDropLocations[guildID] = [];
         serverDropWeights[guildID]   = 0;
@@ -469,6 +469,10 @@ async function initGuild(guildID) {
 
         readGuild(guildID).then(result => {
 
+            if (result.Item === undefined || result.Item == null) {
+                console.error("ERROR initGuild " + guildID + ":\nresult.Item is null.");
+                reject ("result.Item is null");
+            }
             var myDropLocations = result.Item.dropLocations;
 
 	    serverAudioMute[guildID] = result.Item.audioMute;
@@ -482,7 +486,7 @@ async function initGuild(guildID) {
             }
             resolve(serverDropLocations[guildID]);
         }).catch((e) => {
-            console.error("ERROR initGuild:\n", e);
+            console.error("ERROR initGuild " + guildID + ":\n" + e);
             reject(e);
         });
 
@@ -544,7 +548,7 @@ async function handleCommand(args, userID, channelID, guildID) {
     // --------------------------------------
     if (isDevUser) {
 
-        console.log("Running command from dev user: ", userID);
+        console.log("Running command from dev user: " + userID);
         
         switch(cmd) {
 
@@ -622,7 +626,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 }, 200);
                 
             }).catch((e) => {
-                console.error("ERROR resetban: ", e);
+                console.error("ERROR resetban: " + e);
                 setTimeout(function() {
                     bot.sendMessage({
                         to: channelID,
@@ -690,7 +694,16 @@ async function handleCommand(args, userID, channelID, guildID) {
                 }, 200);
                 
             }).catch((err) => {
-                console.error("ERROR isvoter: ", err);
+                var sendMessage = "\u200BOops... DropBot could not access dbl.hasVoted database for userID: " + userID + "\n" +  err;
+                console.log(sendMessage);
+                
+                setTimeout(function() {
+                    bot.sendMessage({
+                        to: channelID,
+                        message: sendMessage
+                    });
+                }, 200);
+                
             });
             
             break;
@@ -778,13 +791,23 @@ async function handleCommand(args, userID, channelID, guildID) {
                     args = ["error", sendMessage];
                     handleCommand(args, userID, channelID, guildID);                    
                 }).catch((err) => {
-                    console.error("ERROR vote command update: ", err);
+                    console.error("ERROR vote command update: " + err);
                 });
                                 
 		return 0;
 	    }
         }).catch((err) => {
-            console.error("ERROR: dbl.hasVoted\n", err);
+
+            var sendMessage = "\u200BOops... <@!" + userID + ">, DropBot could not access Discord Bot List's vote database.\nPlease try again later.\n";
+            console.log(sendMessage);
+            
+            setTimeout(function() {
+                bot.sendMessage({
+                    to: channelID,
+                    message: sendMessage
+                });
+            }, 200);
+            
             return 3;
         });
         
@@ -928,7 +951,7 @@ async function handleCommand(args, userID, channelID, guildID) {
             }, 500);
 
         }).catch((e) => {
-            console.error("ERROR updateGuildDrops: ", e);
+            console.error("ERROR updateGuildDrops: " + e);
         });
 
         break;
@@ -1005,7 +1028,7 @@ async function handleCommand(args, userID, channelID, guildID) {
             }, 500);
 
         }).catch((e) => {
-            console.log("Error: ", e);
+            console.log("ERROR: settings command. guildID: " + guildID + "\n" + e);
         });
 
         break;
@@ -1105,7 +1128,8 @@ async function handleCommand(args, userID, channelID, guildID) {
                                     to: channelID,
                                     message: sendMessage
 				});
-                                console.log("WARNING: Voice channel active/permissions issue for " + channels[c].name + " [" + c + "]");
+                                console.log("WARNING: Voice channel active/permissions issue for " +
+                                            bot.servers[guildID].channels[voiceChannelID].name + " [" + voiceChannelID + "]");
                                 return 1;
                             }
 
@@ -1201,9 +1225,12 @@ async function handleCommand(args, userID, channelID, guildID) {
         } else {
             console.log("Vote after handleCommand: " + userID + " status unchanged. isVoter:" + voted);
         }
-
+	
+    }).catch((err) => {
+        console.log("WARNING: Could not access dbl.hasVoted database for userID: " + userID + "\n" +  err);
+        return 3;
     });
-    
+
     return 1;
 }
 
@@ -1316,7 +1343,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     // Ask to move to specific channels in Official DropBot Server
     if (guildID == DROPBOT_SERVER_ID) { 
         if (channelID != DROPBOT_TEST_CHANNEL_ID1 && channelID != DROPBOT_TEST_CHANNEL_ID2) {            
-            console.log("User " + user + "#" + userDisc + " [" + c + "] in DropBot Official Server. Asked to move to correct channel.");
+            console.log("User " + user + "#" + userDisc + " [" + userID + "] in DropBot Official Server. Asked to move to correct channel.");
             args = ["error", "\u200B<@!" + userID + ">, Please join either #dropbot-test-1 or #dropbot-test-2 channels."];
             handleCommand(args, userID, channelID, guildID);
             return 0;
@@ -1333,11 +1360,11 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         initGuildDatabase(guildName, guildID).then(result => {
             if (DEBUG_MESSAGE) console.log("initGuildDatabase success.");
         }).catch(err => {
-            console.error("ERROR initGuildDatabase:\n", err);
+            console.error("ERROR initGuildDatabase + " + guildID + ":\n" + err);
         }).then(() => {
 
-            initGuild(guildID).then(function(result) {
-                if (DEBUG_MESSAGE) console.log("initGuild success.");
+            initGuild(guildID).then(result => {
+                if (DEBUG_MESSAGE) console.log("initGuild " + guildID + " success.");
                 serverInitialized[guildID] = true;
 
                 // For the case of using a new server only, we treat the user as new as well.
@@ -1352,15 +1379,21 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
 		    initUser(user, userID, userDisc, epochTime).then(result => {
                         dropUserInitialized[userID] = true;
+		        if (DEBUG_DATABASE) console.log("initUser " + userID + " in initGuild " +
+                                                        guildID + ": success");                        
 		        if (DEBUG_DATABASE) console.log(result);
-		    }).catch(err => {
-		        console.error("ERROR initUser in initGuild: ", err);
+		    }).catch(err3 => {
+		        console.error("ERROR initUser " + userID + " in initGuild " +
+                                      guildID + ":\n", err3);                        
 		    });
                 } else {
 		    updateUser(userID, epochTime, false).then(result => {
+		        if (DEBUG_DATABASE) console.log("updateUser " + userID + " in initGuild " +
+                                                        guildID + ": success");
 		        if (DEBUG_DATABASE) console.log(result);
-		    }).catch(err => {
-		        console.error("ERROR updateUser in initGuild: ", err);
+		    }).catch(err3 => {
+		        console.error("ERROR updateUser " + userID + " in initGuild " +
+                                      guildID + ":\n", err3);
 		    });                    
                 }
                 
@@ -1368,11 +1401,10 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 //   The user will already have been set up above.
                 // The script will exit in the return block below.
                 //   No additional code in this function will be executed.
-                handleCommand(args, userID, channelID, guildID);                
-            }, function(err) {
-                console.error("ERROR initGuild:\n", err);
-            });
-	    
+                handleCommand(args, userID, channelID, guildID);
+            }).catch(err2 => {
+                console.error("ERROR initGuild + " + guildID + ":\n", err2);
+            });    
         });
 
         // Do not execute anymore code in this function.
@@ -1497,7 +1529,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 		    return 0;
 		}
             }).catch((err) => {
-                console.error("ERROR: dbl.hasVoted\n", err);
+                console.log("WARNING: Could not access dbl.hasVoted database for userID: " + userID + "\n" +  err);
                 return 3;
             });
             
