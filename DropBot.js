@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 5.5.0
+    @version    : 5.6.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -18,6 +18,7 @@
 
     Links  * Epic Games : https://www.epicgames.com
            * Fortnite   : https://www.epicgames.com/fortnite/en-US/home
+	   * Locations  : https://fortnite.gamepedia.com/Battle_Royale_Map
            * Discord    : https://discordapp.com
 	   * discord.io : https://github.com/izy521/discord.io
 */
@@ -124,11 +125,14 @@ var dropLocationNames = [
 var serverInitialized   = {};
 var dropUserInitialized = {};
 
+var usersTotalCount     = 0;
 var dropUserTimeout     = {};
 var dropUserStrikes     = {};
 var dropUserBlocked     = {};
 var dropUserIsVoter     = {};
 var dropUserWarned      = {};
+
+var serverTotalCount    = 0;
 var serverDropLocations = {};
 var serverDropWeights   = {};
 var serverAudioMute     = {};
@@ -161,14 +165,51 @@ var legalCommands = [
 
 var filenameArray = __filename.split("/");
 
+console.log("Starting database reads for setup");
+
+docClient.scan({TableName: dbTableUsers}, onScan);
+
+function onScan(err, data) {
+    if (err) {
+        console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
+    } else {
+        console.log("Scan succeeded.");
+        data.Items.forEach(function(item) {        
+            console.log(" -", item.name + ": " + item.blocked);
+            dropUserTimeout[item.id] = item.accessTime;
+            dropUserStrikes[item.id] = 0;
+            dropUserBlocked[item.id] = item.blocked;
+            dropUserIsVoter[item.id] = true;
+	    dropUserWarned[item.id]  = false;
+            dropUserInitialized[item.id] = true;
+            usersTotalCount++;            
+        });
+
+        // continue scanning if we have more movies, because
+        // scan can retrieve a maximum of 1MB of data
+        if (typeof data.LastEvaluatedKey != "undefined") {
+            console.log("Scanning for more...");
+            params.ExclusiveStartKey = data.LastEvaluatedKey;
+            docClient.scan(params, onScan);
+        } else {
+            console.log("Done reading " + dbTableUsers + " before starting bot for " + usersTotalCount + " users");
+        }
+    }
+}
+
 var defaultWeights = [];
 initDefaultWeights().then((result) => console.log("Retrieved default weights."));
 
 // Init Discord Bot
 var bot = new Discord.Client({
     token: auth.token,
-    autorun: true
+    autorun: false
 });
+
+setTimeout(function() {
+    bot.connect();
+    console.log("Connecting to Discord...");
+}, 5000);
 
 // DiscordBotList API
 const DBL = require("dblapi.js");
@@ -210,7 +251,8 @@ async function initGuildDatabase(guildName, guildID) {
                 };
 
                 docClient.put(params).promise().then(function(result) {
-                    if (DEBUG_DATABASE) console.log("Successfully created entry.");
+                    if (DEBUG_DATABASE) console.log("Successfully created NEW server database entry.");
+                    console.log("New total servers: " + serverTotalCount);
                     resolve(result);
                 }, function(err) {
                     console.error("ERROR: Failed to create database entry:\n" + err);
@@ -262,6 +304,8 @@ async function initUser(userName, userID, userDisc, accessTime) {
                     dropUserIsVoter[userID] = true;
 		    dropUserWarned[userID]  = false;
                     dropUserInitialized[userID] = true;
+                    usersTotalCount++;
+                    console.log("New total users: " + usersTotalCount);
                     resolve(result);
                 }, function(err) {
                     console.error("ERROR initUser: Failed to create database entry.\n" + err);
@@ -495,11 +539,11 @@ async function initGuild(guildID) {
 
 }
 
-function dblPostStats(serverCount) {
-    console.log('*** DBL: Sending serverCount to Discord Bot List - ' + serverCount);
+function dblPostStats(serverTotalCount) {
+    console.log('*** DBL: Sending serverTotalCount to Discord Bot List - ' + serverTotalCount);
 
-    dbl.postStats(serverCount).then(() => {
-	console.log('*** DBL: SUCCESS sending serverCount to Discord Bot List - ' + serverCount);
+    dbl.postStats(serverTotalCount).then(() => {
+	console.log('*** DBL: SUCCESS sending serverTotalCount to Discord Bot List - ' + serverTotalCount);
     }).catch(err => {
         console.log("*** DBL WARNING: Could not access dbl.postStats database");
     });
@@ -508,33 +552,18 @@ function dblPostStats(serverCount) {
 
 bot.on('ready', function (evt) {
     console.log('DropBot Discord client is connected and ready.');
-    console.log('Logged in as: ' + bot.username + ' - (' + bot.id + ')');
+    console.log('Logged in as: ' + bot.username + ' - (' + bot.id + ')');    
 
-    // Send serverCount to DBL at startup and then every 30 minutes.
+    // Send serverTotalCount to DBL at startup and then every 30 minutes.
     if (! (developerMode) && bot.id == DROPBOT_ID) {
-        var serverCount = Object.keys(bot.servers).length;
-        dblPostStats(serverCount); 
+        serverTotalCount = Object.keys(bot.servers).length;
+        dblPostStats(serverTotalCount); 
         setInterval(() => {
-            dblPostStats(serverCount);
+            dblPostStats(serverTotalCount);
         }, 1800000);	
     }
-    
-    var params = {
-        TableName: dbTableUsers,
-    };
-    docClient.scan({TableName: dbTableUsers}).eachPage((err, data, done) => {
-        if (data != null) {
-            for (let index = 0; index < data.Items.length; index++) {
-                dropUserTimeout[data.Items[index].id] = data.Items[index].accessTime;
-                dropUserStrikes[data.Items[index].id] = 0;
-                dropUserBlocked[data.Items[index].id] = data.Items[index].blocked;
-                dropUserIsVoter[data.Items[index].id] = true;
-		dropUserWarned[data.Items[index].id]  = false;
-                dropUserInitialized[data.Items[index].id] = true;
-            }
-        }
-        done();
-    });
+
+    console.log("DropBot listening on " + serverTotalCount + " servers for " + usersTotalCount + " total users");
 
     console.log('DropBot done initializing. Ready to accept user commands.');
 
@@ -890,14 +919,15 @@ async function handleCommand(args, userID, channelID, guildID) {
             break;
         }
 
-        if (typeof args[0] != "number" || typeof args[1] != "number") {
+
+        var setId     = Number(args[0]);
+        var setWeight = Number(args[1]);
+        
+        if (! (Number.isInteger(setId)) || ! (Number.isInteger(setWeight))) {
             message = "\u200BERROR: [id] and [weight] arguments must both be numbers.";
             break;
         }
         
-        var setId = Number(args[0]);
-        var setWeight = Number(args[1]);
-
         if (setId > (NUM_DROP_LOCATIONS-1) || setId < 0) {
             message = "\u200BERROR: Index must be within the range of 0 to " + (NUM_DROP_LOCATIONS-1);
             break;
@@ -1198,8 +1228,10 @@ async function handleCommand(args, userID, channelID, guildID) {
                                     });
 
                                     if (fs.existsSync(sfxFile)) {
-					// console.log(sfxFile);
-					fs.createReadStream(sfxFile).pipe(stream, {end: false});
+					// console.log(sfxFile);                                        
+                                        setTimeout(function() {
+					    fs.createReadStream(sfxFile).pipe(stream, {end: false});
+                                        }, 200);
                                     } else {
 					bot.leaveVoiceChannel(voiceChannelID);
                                     }
@@ -1411,7 +1443,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                         dropUserInitialized[userID] = true;
 		        if (DEBUG_DATABASE) console.log("initUser " + userID + " in initGuild " +
                                                         guildID + ": success");                        
-		        if (DEBUG_DATABASE) console.log(result);
+		        //if (DEBUG_DATABASE) console.log(result);
 		    }).catch(err3 => {
 		        console.error("ERROR initUser " + userID + " in initGuild " +
                                       guildID + ":\n", err3);                        
@@ -1419,8 +1451,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 } else {
 		    updateUser(userID, epochTime, false).then(result => {
 		        if (DEBUG_DATABASE) console.log("updateUser " + userID + " in initGuild " +
-                                                        guildID + ": success");
-		        if (DEBUG_DATABASE) console.log(result);
+                                                        guildID + ": SUCCESS");
+		        //if (DEBUG_DATABASE) console.log(result);
 		    }).catch(err3 => {
 		        console.error("ERROR updateUser " + userID + " in initGuild " +
                                       guildID + ":\n", err3);
@@ -1459,7 +1491,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         dropUserWarned[userID]  = false;
         
 	initUser(user, userID, userDisc, epochTime).then(result => {
-	    if (DEBUG_DATABASE) console.log("initUser result from on.message:\n", result);
+	    if (DEBUG_DATABASE) console.log("initUser " + user + "[" + userID + "]success from on.message");
 	}).catch(err => {
 	    console.error("ERROR initUser: ", err);
 	});
