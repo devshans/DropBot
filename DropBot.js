@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 5.4.0
+    @version    : 5.5.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -29,6 +29,7 @@ var DEBUG_DBL      = true;
 var DEBUG_VOTE     = true;
 
 var STRIKE_SYSTEM_ENABLED = false;
+var VOTE_SYSTEM_ENABLED   = false;
 
 var Discord = require('discord.io');
 var rwc     = require('random-weighted-choice');
@@ -99,7 +100,7 @@ var dropLocationNames = [
     "Dusty Divot"
     ,"Fatal Fields"
     ,"Frosty Flights"
-    ,"Greasy Grove"
+    ,"Tomato Temple"
     ,"Happy Hamlet"
     ,"Haunted Hills"
     ,"Junk Junction"
@@ -496,7 +497,13 @@ async function initGuild(guildID) {
 
 function dblPostStats(serverCount) {
     console.log('*** DBL: Sending serverCount to Discord Bot List - ' + serverCount);
-    dbl.postStats(serverCount);
+
+    dbl.postStats(serverCount).then(() => {
+	console.log('*** DBL: SUCCESS sending serverCount to Discord Bot List - ' + serverCount);
+    }).catch(err => {
+        console.log("*** DBL WARNING: Could not access dbl.postStats database");
+    });
+
 }
 
 bot.on('ready', function (evt) {
@@ -607,6 +614,12 @@ async function handleCommand(args, userID, channelID, guildID) {
             STRIKE_SYSTEM_ENABLED = !STRIKE_SYSTEM_ENABLED;
             message = "\u200BSet STRIKE_SYSTEM_ENABLED to " + STRIKE_SYSTEM_ENABLED;
             break;
+
+        case 'votesystem':            
+            VOTE_SYSTEM_ENABLED = !VOTE_SYSTEM_ENABLED;
+            message = "\u200BSet VOTE_SYSTEM_ENABLED to " + VOTE_SYSTEM_ENABLED;
+            break;
+            
             
         case 'resetban':
             if (args.length < 1) {
@@ -736,6 +749,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += 'db!info              : Shows DropBot information and links/commands for additional help.\n';
         message += 'db!stop              : Stop playing audio and remove DropBot from voice channel.\n';
 	message += 'db!help              : Show this help message again.\n';
+	message += 'db!vote              : Check and update vote status for bot within the last 24 hours without rate limit penalty.\n';
         message += 'db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.\n';
         message += '----------------------------------\n';
         message += '```';
@@ -753,63 +767,67 @@ async function handleCommand(args, userID, channelID, guildID) {
 
     case 'v':
     case 'vote':
-
-        dbl.hasVoted(userID).then(voted => {
-            if (dropUserIsVoter[userID] != voted) {
-                if (DEBUG_VOTE) console.log("***** VOTE command changed to " + voted + " for userID " + userID);
-            }
-            if (! (voted)) {
-                dropUserIsVoter[userID] = false;
-                if (dropUserWarned[userID]) {
-                    sendMessage  = "\u200B<@!" + userID + ">, you are not shown as having voted in the last 24 hours.\n";
-                    sendMessage += "If you just voted, wait about a minute or 2 for it to process.\n";
-                    sendMessage += "You can run \"db!vote\" again without restriction to check vote status.\n";
-                } else {
-                    dropUserWarned[userID] = true;
-                    sendMessage  = "\u200B<@!" + userID + "> has NOT yet voted in the last 24 hours.\n";
-                    sendMessage += "If you just voted, wait about a minute or 2 for it to process.\n";
-                    sendMessage += "You are rate limited to using one command every " + NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
-		    sendMessage += "To lessen restriction to " + VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
-                    sendMessage += "You may check if your vote has been processed immediately and without penalty with \"db!vote\"";
+        if (VOTE_SYSTEM_ENABLED) {
+            dbl.hasVoted(userID).then(voted => {
+                if (dropUserIsVoter[userID] != voted) {
+                    if (DEBUG_VOTE) console.log("***** VOTE command changed to " + voted + " for userID " + userID);
                 }
-                args = ["error", sendMessage];
-                handleCommand(args, userID, channelID, guildID);
-                return 1;
-            } else {
-		dropUserIsVoter[userID] = true;
-		dropUserWarned[userID]  = false;
-
-                epochTime = (new Date).getTime();
-                dropUserStrikes[userID] = 0;
-                dropUserTimeout[userID] = epochTime;
-                dropUserStrikes[userID] = 0;
-                dropUserBlocked[userID] = false;
-                dropUserWarned[userID]  = false;
-
-                updateUser(userID, epochTime, false).then(result => {
-                    sendMessage  = "\u200B<@!" + userID + ">, you are shown as voting within the last 24 hours! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
+                if (! (voted)) {
+                    dropUserIsVoter[userID] = false;
+                    if (dropUserWarned[userID]) {
+                        sendMessage  = "\u200B<@!" + userID + ">, you are not shown as having voted in the last 24 hours.\n";
+                        sendMessage += "If you just voted, wait about a minute or 2 for it to process.\n";
+                        sendMessage += "You can run \"db!vote\" again without restriction to check vote status.\n";
+                    } else {
+                        dropUserWarned[userID] = true;
+                        sendMessage  = "\u200B<@!" + userID + "> has NOT yet voted in the last 24 hours.\n";
+                        sendMessage += "If you just voted, wait about a minute or 2 for it to process.\n";
+                        sendMessage += "You are rate limited to using one command every " + NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
+		        sendMessage += "To lessen restriction to " + VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
+                        sendMessage += "You may check if your vote has been processed immediately and without penalty with \"db!vote\"";
+                    }
                     args = ["error", sendMessage];
-                    handleCommand(args, userID, channelID, guildID);                    
-                }).catch((err) => {
-                    console.error("ERROR vote command update: " + err);
-                });
-                                
-		return 0;
-	    }
-        }).catch((err) => {
+                    handleCommand(args, userID, channelID, guildID);
+                    return 1;
+                } else {
+		    dropUserIsVoter[userID] = true;
+		    dropUserWarned[userID]  = false;
 
-            var sendMessage = "\u200BOops... <@!" + userID + ">, DropBot could not access Discord Bot List's vote database.\nPlease try again later.\n";
-            console.log(sendMessage);
-            
-            setTimeout(function() {
-                bot.sendMessage({
-                    to: channelID,
-                    message: sendMessage
-                });
-            }, 200);
-            
-            return 3;
-        });
+                    epochTime = (new Date).getTime();
+                    dropUserStrikes[userID] = 0;
+                    dropUserTimeout[userID] = epochTime;
+                    dropUserStrikes[userID] = 0;
+                    dropUserBlocked[userID] = false;
+                    dropUserWarned[userID]  = false;
+
+                    updateUser(userID, epochTime, false).then(result => {
+                        sendMessage  = "\u200B<@!" + userID + ">, you are shown as voting within the last 24 hours! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
+                        args = ["error", sendMessage];
+                        handleCommand(args, userID, channelID, guildID);                    
+                    }).catch((err) => {
+                        console.error("ERROR vote command update: " + err);
+                    });
+                    
+		    return 0;
+	        }
+            }).catch((err) => {
+
+                var sendMessage = "\u200BOops... <@!" + userID + ">, DropBot could not access Discord Bot List's vote database.\nPlease try again later.\n";
+                console.log(sendMessage);
+                
+                setTimeout(function() {
+                    bot.sendMessage({
+                        to: channelID,
+                        message: sendMessage
+                    });
+                }, 200);
+                
+                return 3;
+            });
+        } else {
+            message = "\u200BVote system temporarily disabled.\n" +
+                "Rate limiting set to minimum of " + VOTE_USER_TIMEOUT_SEC + " second(s).";
+        }
         
         break;
 
@@ -1033,23 +1051,32 @@ async function handleCommand(args, userID, channelID, guildID) {
 
         break;
 
-    //fixme - SPS. Check that user is in a guild. Update description.
-    // Note that this will only work if the message was sent in a guild
-    // and the author is actually in a voice channel.
-    // It also won't stop the existing command but will not play audio.
+    // Exits all voice channels in the server that DropBot is active in. Regardless of user being active there.
+    // Won't stop the existing command but will not play audio and should leave the voice channel immediately.
     case 'stop':
 
         var channels = bot.servers[guildID].channels;
-        message = "\u200BSorry.... Leaving all voice channels on server now.";
+        message = "\u200BOkay, leaving any active voice channels in this server now.";
 
-        for (var c in channels) {
-            var channel = channels[c];
+	if (DEBUG_COMMAND) console.log("Asked to leave voice channels in guildID: " + bot.servers[guildID].name +
+				       "[" + guildID + "]" + " by userID " + userID);				       
+				       
+        for (var channelID in channels) {
+            var channel = channels[channelID];
 
-            //fixme - SPS. Can we check for the string 'voice'?
-            //   Also increase logging here.
             if (channel.type == 2) {
-                console.log('Asked to leave voice channel: ' + c);
-                bot.leaveVoiceChannel(c);
+                //console.log('Found voice channel: ' + c);
+		for (var m in channel.members) {
+                    var member = channel.members[m];
+		    //console.log("Found member: " + member.user_id);
+                    if (member.user_id == userID) {
+			if (DEBUG_COMMAND) console.log("Leaving active voice channel " +
+						       channel.name + "[" + channelID + "]" + " in server " +
+						       bot.servers[guildID].name + "[" + guildID + "]");
+			bot.leaveVoiceChannel(channelID);
+		    }
+		}		
+
             }
         }
 
@@ -1142,7 +1169,8 @@ async function handleCommand(args, userID, channelID, guildID) {
 					to: channelID,
 					message: 'Had a strange problem talking... Wait a sec?'
                                     });
-                                    console.error(error);
+                                    console.log("WARNING: error with bot.getAudioContext:\n" + error);
+				    bot.leaveVoiceChannel(voiceChannelID);
                                     return 1;
 				}
 
@@ -1209,27 +1237,29 @@ async function handleCommand(args, userID, channelID, guildID) {
     // We default users to voters at bot/user initialization and demote from there.
     // Will be checked again prior to sending a message,
     //   if they have a non-voter restriction and send a command under the time limit.
-    dbl.hasVoted(userID).then(voted => {
-        
-        if (dropUserIsVoter[userID] != voted) {
-            if (DEBUG_VOTE) console.log("***** VOTE after handleCommand changed to " + voted + " for userID " + userID);
+    if (VOTE_SYSTEM_ENABLED) {
+        dbl.hasVoted(userID).then(voted => {
+            
+            if (dropUserIsVoter[userID] != voted) {
+                if (DEBUG_VOTE) console.log("***** VOTE after handleCommand changed to " + voted + " for userID " + userID);
 
-            dropUserIsVoter[userID] = voted;
-            if (voted) {
-                dropUserWarned[userID]  = false;
-                bot.sendMessage({
-                    to: channelID,
-                    message: "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n"
-                });
+                dropUserIsVoter[userID] = voted;
+                if (voted) {
+                    dropUserWarned[userID]  = false;
+                    bot.sendMessage({
+                        to: channelID,
+                        message: "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n"
+                    });
+                }
+            } else {
+                console.log("Vote after handleCommand: " + userID + " status unchanged. isVoter:" + voted);
             }
-        } else {
-            console.log("Vote after handleCommand: " + userID + " status unchanged. isVoter:" + voted);
-        }
-	
-    }).catch((err) => {
-        console.log("WARNING: Could not access dbl.hasVoted database for userID: " + userID + "\n" +  err);
-        return 3;
-    });
+	    
+        }).catch((err) => {
+            console.log("WARNING: Could not access dbl.hasVoted database for userID: " + userID + "\n" +  err);
+            return 3;
+        });
+    }
 
     return 1;
 }
@@ -1464,9 +1494,13 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         }
     }
 
-    if (args[0] == 'vote') {
-        handleCommand(args, userID, channelID, guildID);
-        return 0;
+    if (VOTE_SYSTEM_ENABLED) {
+        if (args[0] == 'vote') {
+            handleCommand(args, userID, channelID, guildID);
+            return 0;
+        }
+    } else {
+        dropUserIsVoter[userID] = true;
     }
 
     // The fun part... Handling rate limiting and vote status for repeated users.
