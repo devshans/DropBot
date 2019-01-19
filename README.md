@@ -41,7 +41,7 @@ db!settings          : Shows only DropBot settings on this server.
 db!info              : Shows DropBot information and links/commands for additional help.
 db!stop              : Stop playing audio and remove DropBot from voice channel.
 db!help              : Show this help message again.
-db!vote              : Check and update bot vote status within the last 24 hours without rate limit penalty.
+db!vote              : Check and update vote status for bot within the last 24 hours without rate limit penalty.
 db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.
 
 -----------------------
@@ -52,7 +52,7 @@ db!set [id] [weight]
  0    Dusty Divot
  1    Fatal Fields
  2    Frosty Flights
- 3    Greasy Grove
+ 3    Tomato Temple
  4    Happy Hamlet
  5    Haunted Hills
  6    Junk Junction
