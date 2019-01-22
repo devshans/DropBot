@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 5.7.0
+    @version    : 6.1.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -173,9 +173,9 @@ function onScan(err, data) {
     if (err) {
         console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
     } else {
-        console.log("Scan succeeded.");
+        console.log("dbTableUsers scan succeeded.");
         data.Items.forEach(function(item) {        
-            console.log(" -", item.name + ": " + item.blocked);
+            if (developerMode) console.log(" -", item.name + ": " + item.blocked);
             dropUserTimeout[item.id] = item.accessTime;
             dropUserStrikes[item.id] = 0;
             dropUserBlocked[item.id] = item.blocked;
@@ -188,7 +188,7 @@ function onScan(err, data) {
         // continue scanning if we have more movies, because
         // scan can retrieve a maximum of 1MB of data
         if (typeof data.LastEvaluatedKey != "undefined") {
-            console.log("Scanning for more...");
+            console.log("dbTableUsers scanning for more...");
             params.ExclusiveStartKey = data.LastEvaluatedKey;
             docClient.scan(params, onScan);
         } else {
@@ -206,10 +206,17 @@ var bot = new Discord.Client({
     autorun: false
 });
 
-setTimeout(function() {
-    console.log("Connecting to Discord...");    
-    bot.connect();
-}, 5000);
+if (developerMode) {
+    setTimeout(function() {
+        console.log("Connecting to Discord...");    
+        bot.connect();
+    }, 500);
+} else {
+    setTimeout(function() {
+        console.log("Connecting to Discord...");    
+        bot.connect();
+    }, 5000);
+}
 
 // DiscordBotList API
 const DBL = require("dblapi.js");
@@ -284,7 +291,7 @@ async function initUser(userName, userID, userDisc, accessTime) {
 
             if (result.Item == null) {
                 if (DEBUG_DATABASE) console.log("Creating NEW user database entry: " + userName + "#" + userDisc + "[" + userID + "]");
-                
+
                 var params = {
                     TableName: dbTableUsers,
                     Item:{
@@ -1217,57 +1224,102 @@ async function handleCommand(args, userID, channelID, guildID) {
                             }
 
                             var played2nd = false;
-
+                            var playbackUserErrorMessage = "Had a strange problem talking... Wait a sec?";
+                            
                             bot.getAudioContext(voiceChannelID, function(error, stream) {
 				//Once again, check to see if any errors exist
 				if (error) {
+                                    console.log("WARNING: error with bot.getAudioContext:\n" + error);
                                     bot.sendMessage({
 					to: channelID,
-					message: 'Had a strange problem talking... Wait a sec?'
+					message: playbackUserErrorMessage
                                     });
-                                    console.log("WARNING: error with bot.getAudioContext:\n" + error);
-				    bot.leaveVoiceChannel(voiceChannelID);
+				    bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                        if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                            console.log("WARNING: Error leaving voice channel 1:\n" + error);
+                                        }
+                                    });
                                     return 1;
 				}
-
+                                
 				if (fs.existsSync(sfxFile)) {
                                     var introFile = 'sfx_droplocations/' + dropIntros[Math.floor(Math.random()*dropIntros.length)];
                                     fs.createReadStream(introFile).pipe(stream, {end: false});                  
-                                    //var readStream = fs.createReadStream('sfx_droplocations/intro.wav');
-                                    //readStream.pipe(stream, {end: false});
-
 				} else {
-                                    bot.leaveVoiceChannel(voiceChannelID);
+                                    console.error("ERROR: Could not find sfxFile: " + sfxFile + "");
+                                    bot.sendMessage({
+					to: channelID,
+					message: playbackUserErrorMessage
+                                    });
+				    bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                        if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {                                        
+                                            console.log("WARNING: Error leaving voice channel 2:\n" + error);
+                                        }
+                                    });
 				}
-
+                                
 				//The stream fires `done` when it's got nothing else to send to Discord.
 				stream.on('done', function() {
-
+                                    
                                     // This event will fire when the 2nd stream is done so make sure
                                     //   we only play it once.
                                     if (played2nd) return 0;
                                     played2nd = true;
-
+                                    
                                     bot.sendMessage({
 					to: channelID,
 					message: dropLocationMessage
                                     });
 
                                     if (fs.existsSync(sfxFile)) {
-					// console.log(sfxFile);                                        
+
                                         setTimeout(function() {
 					    fs.createReadStream(sfxFile).pipe(stream, {end: false});
+
+                                            stream.on('done', function() {
+				                bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                                    if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                        console.log("WARNING: Error leaving voice channel 3:\n" + error);
+                                                    }
+                                                });
+                                            });
+
+                                            stream.on('error', function(error) {
+                                                if (error && error != null && error.trim() != "pipe:0: Immediate exit requested") {
+                                                    console.log("WARNING: Error with stream 2:\n" + error);
+                                                    // bot.sendMessage({
+					            //     to: channelID,
+					            //     message: playbackUserErrorMessage
+                                                    // });
+                                                }
+                                            });                             
+                                            
                                         }, 200);
                                     } else {
-					bot.leaveVoiceChannel(voiceChannelID);
+                                        console.error("ERROR: Could not find sfxFile: " + sfxFile + "");
+                                        bot.sendMessage({
+					    to: channelID,
+					    message: playbackUserErrorMessage
+                                        });
+				        bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                            if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {                                            
+                                                console.log("WARNING: Error leaving voice channel 3:\n" + error);
+                                            }
+                                        });
                                     }
 
-                                    //The stream fires `done` when it's got nothing else to send to Discord.
-                                    stream.on('done', function() {                      
-					//Handle
-					bot.leaveVoiceChannel(voiceChannelID);
-                                    });
 				});
+                                stream.on('error', function(error) {
+
+                                    // Bit of a hack but works well enough to filter out the expected stream errors.
+                                    if (error && error != null && error.trim() != "pipe:0: Immediate exit requested") {
+                                        console.log("WARNING: Error with stream 1:\n" + error);
+                                        // bot.sendMessage({
+					//     to: channelID,
+					//     message: playbackUserErrorMessage
+                                        // });
+                                    }
+                                });
                             });
 			});
                     }
