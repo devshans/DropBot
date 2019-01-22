@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 5.6.0
+    @version    : 5.7.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -207,8 +207,8 @@ var bot = new Discord.Client({
 });
 
 setTimeout(function() {
+    console.log("Connecting to Discord...");    
     bot.connect();
-    console.log("Connecting to Discord...");
 }, 5000);
 
 // DiscordBotList API
@@ -252,6 +252,7 @@ async function initGuildDatabase(guildName, guildID) {
 
                 docClient.put(params).promise().then(function(result) {
                     if (DEBUG_DATABASE) console.log("Successfully created NEW server database entry.");
+                    serverTotalCount++;
                     console.log("New total servers: " + serverTotalCount);
                     resolve(result);
                 }, function(err) {
@@ -549,6 +550,27 @@ function dblPostStats(serverTotalCount) {
     });
 
 }
+
+// The library has either disconnected from Discord or failed to log in after a .connect() call.
+// If it's the former, the code will be a WebSocket Error Code (1xxx - 4xxx).
+// If it's the latter, the code will be 0
+bot.on('disconnect', function(errMsg, code) {
+    console.log("ERROR ************* Disconnected.");
+    if (code == 0) {
+        console.log("ERROR Disconnect: Failed to log in after a .connect() call.");
+    } else {
+        console.log("ERROR Disconnect: Disconnected from Discord.");
+    }
+    console.error("ERROR: Disconnect message:\n" + errMsg);
+
+    console.log("Might as well try to reconnect...");
+    setTimeout(function() {
+        console.log("Connecting to Discord...");        
+        bot.connect();
+    }, 5000);
+    
+});
+
 
 bot.on('ready', function (evt) {
     console.log('DropBot Discord client is connected and ready.');
