@@ -292,7 +292,11 @@ async function initUser(userName, userID, userDisc, accessTime) {
                         "discriminator":userDisc,
                         "name":userName,
                         "accessTime":accessTime,
+                        "creationTime":accessTime,
+                        "lastVoteTime":accessTime,
                         "numAccesses":1,
+                        "numVotes":0,
+                        "isVoter":false,
                         "blocked":false
                     }
                 };
