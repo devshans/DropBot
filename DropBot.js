@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 6.1.0
+    @version    : 6.2.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -136,6 +136,7 @@ var serverTotalCount    = 0;
 var serverDropLocations = {};
 var serverDropWeights   = {};
 var serverAudioMute     = {};
+var serverActiveVoice   = {}; // Servers that DropBot is actively speaking on.
 
 var dropIntros = [
      'intro.wav'
@@ -523,6 +524,7 @@ async function initGuild(guildID) {
         serverDropLocations[guildID] = [];
         serverDropWeights[guildID]   = 0;
 	serverAudioMute[guildID]     = false;
+        serverActiveVoice[guildID]   = false;
 
         readGuild(guildID).then(result => {
 
@@ -740,6 +742,30 @@ async function handleCommand(args, userID, channelID, guildID) {
             message += "```";
             
             break;
+
+        case 'resetvoice':
+
+            for (var thisGuildID in bot.servers) {
+                if (serverActiveVoice[thisGuildID]) {
+                    serverActiveVoice = false;
+                    for (var voiceChannelID in bot.servers[thisGuildID].channels) {
+                        if (bot.servers[thisGuildID].channels[voiceChannelID].type == 2) {
+			    console.log("Leaving active voice channel " +
+					bot.servers[thisGuildID].channels[voiceChannelID] + "[" + voiceChannelID + "]" + " in server " +
+					bot.servers[thisGuildID].name + "[" + thisGuildID + "]");
+                            bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                if (error) {
+                                    if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                        console.log("WARNING: Error leaving voice channel dev:\n" + error);
+                                    } 
+                                } else {
+                                    serverActiveVoice[thisGuildID] = false;
+                                }
+                            });                           
+                        }
+                    }
+                }
+            }           
 
         case 'isvoter':
 
@@ -1124,8 +1150,8 @@ async function handleCommand(args, userID, channelID, guildID) {
 	if (DEBUG_COMMAND) console.log("Asked to leave voice channels in guildID: " + bot.servers[guildID].name +
 				       "[" + guildID + "]" + " by userID " + userID);				       
 				       
-        for (var channelID in channels) {
-            var channel = channels[channelID];
+        for (var voiceChannelID in channels) {
+            var channel = channels[voiceChannelID];
 
             if (channel.type == 2) {
                 //console.log('Found voice channel: ' + c);
@@ -1134,9 +1160,16 @@ async function handleCommand(args, userID, channelID, guildID) {
 		    //console.log("Found member: " + member.user_id);
                     if (member.user_id == userID) {
 			if (DEBUG_COMMAND) console.log("Leaving active voice channel " +
-						       channel.name + "[" + channelID + "]" + " in server " +
+						       channel.name + "[" + voiceChannelID + "]" + " in server " +
 						       bot.servers[guildID].name + "[" + guildID + "]");
-			bot.leaveVoiceChannel(channelID);
+                        serverActiveVoice[guildID] = false; // Set as done regardless of error
+                        bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                            if (error) {
+                                if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                    console.log("WARNING: Error leaving voice channel stop:\n" + error);
+                                }
+                            } 
+                        });
 		    }
 		}		
 
@@ -1149,7 +1182,7 @@ async function handleCommand(args, userID, channelID, guildID) {
     // Default command. Can be run with "db!"
     case '':
     case 'wwdb': // Where we droppin', boys?
-
+       
         var dropLocationID = rwc(serverDropLocations[guildID]);
         var dropChance;
 
@@ -1177,6 +1210,7 @@ async function handleCommand(args, userID, channelID, guildID) {
 
 	if (serverAudioMute[guildID]) {
 
+            serverActiveVoice[guildID] = false;
             setTimeout(function() {
 		bot.sendMessage({
                     to: channelID,
@@ -1195,20 +1229,49 @@ async function handleCommand(args, userID, channelID, guildID) {
             var voiceChannelID = -1;
             var channels = bot.servers[guildID].channels;
 
-            for (var c in channels) {
+            for (var thisChannelID in channels) {
 		if (voiceChannelID != -1) break;
-		var channel = channels[c];
+		var channel = channels[thisChannelID];
 
 		for (var m in channel.members) {
                     if (voiceChannelID != -1) break;
                     var member = channel.members[m];
                     if (member.user_id == userID) {
-			voiceChannelID = c;
+			voiceChannelID = thisChannelID;
 
-			if (DEBUG_COMMAND) console.log('Talking on channel : ' + channels[c].name + " [" + c + "]");
+			if (DEBUG_COMMAND) console.log('Talking on channel : ' + channels[voiceChannelID].name + " [" + voiceChannelID + "]");
 
-			bot.joinVoiceChannel(c, function(error, events) {
+                        if (serverActiveVoice[guildID]) {
+                            console.log("User warning: Voice channel active serverActiveVoice for " +
+                                        bot.servers[guildID].channels[voiceChannelID].name + " [" + voiceChannelID + "]");
+                            serverActiveVoice[guildID] = false;
+                            var sendMessage = "\u200B";
+                            sendMessage += "<@!" + userID + ">, <@!" + DROPBOT_ID + "> is already active in this server.\n";
+                            sendMessage += "Bot can only talk on 1 voice channel at a time. Wait until it\'s done speaking or use \"db!stop\"\n";
+			    bot.sendMessage({
+                                to: channelID,
+                                message: sendMessage
+			    });
+                            
+                            // Double check voice channel status a little while after.
+                            // Could potentially get locked in a race condition or strange error lock.
+                            setTimeout(function() {
+                                for (var innerChannelID in channels) {
+                                    if (channels[innerChannelID].type == 2) {
+                                        return 0;
+                                    }
+                                }
+                                serverActiveVoice[guildID] = false;
+                            }, 2000);
+
+                            return 0;
+                        }
+
+			bot.joinVoiceChannel(voiceChannelID, function(error, events) {
                             if (error) {
+                                console.log("User warning: Voice channel active/permissions issue for " +
+                                            bot.servers[guildID].channels[voiceChannelID].name + " [" + voiceChannelID + "]");
+                                serverActiveVoice[guildID] = false;
                                 var sendMessage = "\u200B";
                                 sendMessage += "<@!" + userID + ">, <@!" + DROPBOT_ID + "> is having trouble communicating in this voice channel.\n";
                                 sendMessage += "This can happen if you have restricted channel permissions.\n";
@@ -1218,8 +1281,6 @@ async function handleCommand(args, userID, channelID, guildID) {
                                     to: channelID,
                                     message: sendMessage
 				});
-                                console.log("WARNING: Voice channel active/permissions issue for " +
-                                            bot.servers[guildID].channels[voiceChannelID].name + " [" + voiceChannelID + "]");
                                 return 1;
                             }
 
@@ -1230,31 +1291,39 @@ async function handleCommand(args, userID, channelID, guildID) {
 				//Once again, check to see if any errors exist
 				if (error) {
                                     console.log("WARNING: error with bot.getAudioContext:\n" + error);
+                                    serverActiveVoice[guildID] = false;
                                     bot.sendMessage({
 					to: channelID,
 					message: playbackUserErrorMessage
                                     });
 				    bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
-                                        if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
-                                            console.log("WARNING: Error leaving voice channel 1:\n" + error);
-                                        }
+                                        // Do not set the serverActiveVoice as false until we play the 2nd sound clip.
+                                        if (error) {
+                                            if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                console.log("WARNING: Error leaving voice channel 1:\n" + error);
+                                            }
+                                        } 
                                     });
                                     return 1;
 				}
                                 
 				if (fs.existsSync(sfxFile)) {
                                     var introFile = 'sfx_droplocations/' + dropIntros[Math.floor(Math.random()*dropIntros.length)];
+                                    serverActiveVoice[guildID] = true;
                                     fs.createReadStream(introFile).pipe(stream, {end: false});                  
 				} else {
                                     console.error("ERROR: Could not find sfxFile: " + sfxFile + "");
+                                    serverActiveVoice[guildID] = false;
                                     bot.sendMessage({
 					to: channelID,
 					message: playbackUserErrorMessage
                                     });
 				    bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
-                                        if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {                                        
-                                            console.log("WARNING: Error leaving voice channel 2:\n" + error);
-                                        }
+                                        if (error) {
+                                            if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                console.log("WARNING: Error leaving voice channel 2:\n" + error);
+                                            }
+                                        } 
                                     });
 				}
                                 
@@ -1274,37 +1343,43 @@ async function handleCommand(args, userID, channelID, guildID) {
                                     if (fs.existsSync(sfxFile)) {
 
                                         setTimeout(function() {
+                                            serverActiveVoice[guildID] = true;
 					    fs.createReadStream(sfxFile).pipe(stream, {end: false});
 
                                             stream.on('done', function() {
+                                                serverActiveVoice[guildID] = false; // Set as done regardless of error
 				                bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
-                                                    if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
-                                                        console.log("WARNING: Error leaving voice channel 3:\n" + error);
-                                                    }
+                                                    if (error) {
+                                                        if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                            console.log("WARNING: Error leaving voice channel 3:\n" + error);
+                                                        }
+                                                    } 
                                                 });
                                             });
 
                                             stream.on('error', function(error) {
-                                                if (error && error != null && error.trim() != "pipe:0: Immediate exit requested") {
-                                                    console.log("WARNING: Error with stream 2:\n" + error);
-                                                    // bot.sendMessage({
-					            //     to: channelID,
-					            //     message: playbackUserErrorMessage
-                                                    // });
+                                                serverActiveVoice[guildID] = false;
+                                                if (error) {
+                                                    if (typeof error === 'string' && error.trim() != "pipe:0: Immediate exit requested") {
+                                                        console.log("WARNING: Error with stream 2:\n" + error);
+                                                    } 
                                                 }
                                             });                             
                                             
                                         }, 200);
                                     } else {
                                         console.error("ERROR: Could not find sfxFile: " + sfxFile + "");
+                                        serverActiveVoice[guildID] = false;
                                         bot.sendMessage({
 					    to: channelID,
 					    message: playbackUserErrorMessage
                                         });
 				        bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
-                                            if (error && error != null && typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {                                            
-                                                console.log("WARNING: Error leaving voice channel 3:\n" + error);
-                                            }
+                                            if (error) {
+                                                if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                    console.log("WARNING: Error leaving voice channel 4:\n" + error);
+                                                } 
+                                            } 
                                         });
                                     }
 
@@ -1312,13 +1387,16 @@ async function handleCommand(args, userID, channelID, guildID) {
                                 stream.on('error', function(error) {
 
                                     // Bit of a hack but works well enough to filter out the expected stream errors.
-                                    if (error && error != null && error.trim() != "pipe:0: Immediate exit requested") {
-                                        console.log("WARNING: Error with stream 1:\n" + error);
-                                        // bot.sendMessage({
-					//     to: channelID,
-					//     message: playbackUserErrorMessage
-                                        // });
-                                    }
+                                    // Can also get these: WARNING: Error with stream 1: [mp3float @ 0x6cd4fc0]
+                                    //   when running commands from 2 users in different voice channels in the same server.
+                                    //   Doesn't seem to have any effect on the output or stability.
+                                    if (error) {
+                                        serverActiveVoice[guildID] = false;
+                                        if (typeof error === 'string' && error.trim() != "pipe:0: Immediate exit requested") {
+                                            console.log("WARNING: Error with stream 1:\n" + error);
+                                            serverActiveVoice[guildID] = false;
+                                        } 
+                                    } 
                                 });
                             });
 			});
