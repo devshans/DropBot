@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 6.2.0
+    @version    : 6.3.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -826,6 +826,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += "Author   : devshans\n";
         message += "GitHub   : https://github.com/devshans/DropBot\n";        
         message += "Bot Link : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
+        message += "Vote     : https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
         message += 'Discord support server: https://discord.gg/YJWEsvV \n\n';
         message += 'usage: db![option]\n\n';
         message += 'db![option]            Description\n';
@@ -1077,6 +1078,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += "Email            : devshans0@gmail.com\n"
         message += "GitHub           : https://github.com/devshans/DropBot\n";
         message += "Bot Link         : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
+        message += "Bot Vote Support : https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
         message += "Support Discord  : https://discord.gg/YJWEsvV\n\n";
         message += "```";
         break;
@@ -1310,7 +1312,12 @@ async function handleCommand(args, userID, channelID, guildID) {
 				if (fs.existsSync(sfxFile)) {
                                     var introFile = 'sfx_droplocations/' + dropIntros[Math.floor(Math.random()*dropIntros.length)];
                                     serverActiveVoice[guildID] = true;
-                                    fs.createReadStream(introFile).pipe(stream, {end: false});                  
+
+                                    var readStream = fs.createReadStream(introFile);
+                                    readStream.on('error', function(error) {
+                                        console.log("SPS ERROR 1 introFile:\n" + error);
+                                    });                                    
+                                    readStream.pipe(stream, {end: false});                  
 				} else {
                                     console.error("ERROR: Could not find sfxFile: " + sfxFile + "");
                                     serverActiveVoice[guildID] = false;
@@ -1344,7 +1351,12 @@ async function handleCommand(args, userID, channelID, guildID) {
 
                                         setTimeout(function() {
                                             serverActiveVoice[guildID] = true;
-					    fs.createReadStream(sfxFile).pipe(stream, {end: false});
+
+                                            var readStream = fs.createReadStream(sfxFile);
+                                            readStream.on('error', function(error) {
+                                                console.log("SPS ERROR 2 sfxFile:\n" + error);
+                                            });                                
+					    readStream.pipe(stream, {end: false});
 
                                             stream.on('done', function() {
                                                 serverActiveVoice[guildID] = false; // Set as done regardless of error
@@ -1391,7 +1403,6 @@ async function handleCommand(args, userID, channelID, guildID) {
                                     //   when running commands from 2 users in different voice channels in the same server.
                                     //   Doesn't seem to have any effect on the output or stability.
                                     if (error) {
-                                        serverActiveVoice[guildID] = false;
                                         if (typeof error === 'string' && error.trim() != "pipe:0: Immediate exit requested") {
                                             console.log("WARNING: Error with stream 1:\n" + error);
                                             serverActiveVoice[guildID] = false;
@@ -1460,8 +1471,6 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     var isDevUser = (DEVSHANS_ID == userID);
     var maxMessageLength = isDevUser ? 50 : 12;
 
-    //fixme - SPS. Make a counter to see if this continues to happen and report user.    
-    // If a user is banned, do not allow them to continue spamming the bot.
     if (dropUserBlocked[userID] && !(isDevUser)) return 0;
 
     // Our bot needs to know if it will execute a command
@@ -1469,6 +1478,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     var origMessage = message;
     message = message.trim().replace(/ +(?= )/g,'').toLowerCase();
     if (message.substring(0, 3) != "db!") return 0;
+
+    if (DEBUG_COMMAND) console.log("--- MESSAGE input unfiltered: \'" + message + "\' ---");
 	
     var args = message.split(' ');
    
@@ -1498,6 +1509,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
             message += "Author   : <@" + DEVSHANS_ID + ">\n";
             message += "GitHub   : https://github.com/devshans/DropBot\n";        
             message += "Bot Link : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
+            message += "Vote     : https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
             message += 'Discord support server: https://discord.gg/YJWEsvV \n';
             
             bot.sendMessage({
@@ -1573,17 +1585,20 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     // First access from a server since reboot or new server.
     if (serverInitialized[guildID] === undefined || serverInitialized[guildID] == false) {
         if (DEBUG_MESSAGE) console.log("First access from server since at least reboot: ", guildID);
-        serverInitialized[guildID] = false;
+
+        // Assume that database writes will succeed.
+        //   If another user comes in before they are done from the same server, we'll trigger the init twice.
+        serverInitialized[guildID] = true; 
 
         initGuildDatabase(guildName, guildID).then(result => {
             if (DEBUG_MESSAGE) console.log("initGuildDatabase success.");
         }).catch(err => {
             console.error("ERROR initGuildDatabase + " + guildID + ":\n" + err);
+            serverInitialized[guildID] = false; 
         }).then(() => {
 
             initGuild(guildID).then(result => {
                 if (DEBUG_MESSAGE) console.log("initGuild " + guildID + " success.");
-                serverInitialized[guildID] = true;
 
                 // For the case of using a new server only, we treat the user as new as well.
                 //   If the user is banned, the script will already have exited above.
@@ -1619,7 +1634,9 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 //   The user will already have been set up above.
                 // The script will exit in the return block below.
                 //   No additional code in this function will be executed.
-                handleCommand(args, userID, channelID, guildID);
+                setTimeout(function() {
+                    handleCommand(args, userID, channelID, guildID);
+                }, 500);
             }).catch(err2 => {
                 console.error("ERROR initGuild + " + guildID + ":\n", err2);
             });    
@@ -1653,8 +1670,6 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 	});
     }
 
-    //fixme - SPS. Only send so many messages to each blocked user.
-    //  At some point, we have to ignore them. Counter can be reset at bot restart.
     if (STRIKE_SYSTEM_ENABLED) {
 	if (dropUserBlocked[userID] || dropUserStrikes[userID] == USER_MAX_STRIKES) {
 
@@ -1743,7 +1758,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                     return 1;
                 } else {
 		    dropUserIsVoter[userID] = true;
-		    dropUserWarned[userID]  = false; //fixme - SPS. May be redundant...
+		    dropUserWarned[userID]  = false;
                     if (DEBUG_VOTE) console.log("***** VOTE before handleCommand changed to " + voted + " for userID " + userID);
                     sendMessage  = "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
                     args = ["error", sendMessage];
@@ -1773,7 +1788,9 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     dropUserWarned[userID]  = false;
 
     updateUser(userID, epochTime, false).then(result => {
-        handleCommand(args, userID, channelID, guildID);
+        setTimeout(function() {
+            handleCommand(args, userID, channelID, guildID);
+        }, 100);
     }).catch((err) => {
         console.error("ERROR bot.on(message): ", err);
     });  
