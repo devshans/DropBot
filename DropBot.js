@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 6.3.0
+    @version    : 6.3.1
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -915,7 +915,8 @@ async function handleCommand(args, userID, channelID, guildID) {
             });
         } else {
             message = "\u200BVote system temporarily disabled.\n" +
-                "Rate limiting set to minimum of " + VOTE_USER_TIMEOUT_SEC + " second(s).";
+                "Rate limiting set to minimum of " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";
+            message += "Voting link : https://discordbots.org/bot/" + DROPBOT_ID + "/vote \n";
         }
         
         break;
