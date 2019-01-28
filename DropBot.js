@@ -144,10 +144,12 @@ var dropIntros = [
     ,'intro3.wav'
 ];
 
+
 var legalCommands = [
      "h"
-    ,"help"
+    ,"help"    
     ,"error"
+    ,"drop"
     ,"v"
     ,"vote"
     ,"m"
@@ -159,6 +161,7 @@ var legalCommands = [
     ,"info"
     ,"s"
     ,"settings"
+    ,"reset"
     ,"stop"
     ,""
     ,"wwdb"
