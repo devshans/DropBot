@@ -11,7 +11,7 @@
 ## Description
 Automated Bot for Discord VoIP application and digital distribution platform. 
 
-Randomly selects a location to start in for the Fortnite Battle Royale game.
+Randomly selects a location to start in for the Apex Legends and Fortnite Battle Royale games.
 
 [Official Discord Bot](https://discordbots.org/bot/487298106849886224):
 https://discordbots.org/bot/487298106849886224
@@ -27,7 +27,7 @@ https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&p
 ### Usage instructions:
 ```
 Add DropBot to a Discord server and see help by sending a "db!help" message in a channel with DropBot active.
-   Will randomly choose a location in Fortnite to drop.
+   Will randomly choose a location in Apex Legends and Fortnite to drop.
 
 Optional features:
 db![option]    Description
