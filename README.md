@@ -1,5 +1,5 @@
 
-<p align="center"><img src="https://cdn.discordapp.com/avatars/487298106849886224/11a7eff4af1922c251ccb371599c14a2.png"></p>
+<p align="center"><img src="https://images.discordapp.net/avatars/487298106849886224/3a7aecf76365ae6df789ff9486a32d47.png"></p>
 <h1 align="center">Fortnite DropBot</h1>
 
 <p align="center">
@@ -30,46 +30,75 @@ Add DropBot to a Discord server and see help by sending a "db!help" message in a
    Will randomly choose a location in Fortnite to drop.
 
 Optional features:
-usage: db![option]
-
 db![option]    Description
 -----------------------
-db!                  : Randomly choose a Fortnite location to drop based on server settings.
-db!mute              : Mutes DropBot audio in voice channel.
-db!unmute            : Unmutes DropBot audio. Requires user by in voice channel.
-db!settings          : Shows only DropBot settings on this server.
-db!info              : Shows DropBot information and links/commands for additional help.
-db!stop              : Stop playing audio and remove DropBot from voice channel.
-db!help              : Show this help message again.
-db!vote              : Check and update vote status for bot within the last 24 hours without rate limit penalty.
-db!set [id] [weight] : Change the chance of choosing each location. Use "db!set help" for more info.
+db!                   : Uses the default command for choosing a drop location ("db!drop")
+db!drop / db!fortnite : Randomly choose a Fortnite location to drop based on server settings.
+db!apex               : Randomly choose an Apex Legends location to drop based on server settings.
+db!mute               : Mutes DropBot audio in voice channel.
+db!unmute             : Unmutes DropBot audio. Requires user to be in a voice channel.
+db!settings           : Shows all DropBot settings on this server.
+db!reset              : Resets all DropBot settings to their defaults on this server.
+db!info               : Shows DropBot information and links/commands for additional help.
+db!stop               : Stop playing audio and remove DropBot from voice channel.
+db!help               : Show this help message again.
+db!vote               : Check and update vote status for bot within the last 24 hours without rate limit penalty.
+db!set  [id] [weight] : Change the percentage chance of choosing each Fortnite location. Use "db!set help" for more info.
+db!aset [id] [weight] : Change the percentage chance of choosing each Apex Legends location. Use "db!set help" for more info.
 
 -----------------------
 db!set [id] [weight]
   Change the chance of choosing each location.
 
-[id]  Location
- 0    Dusty Divot
- 1    Fatal Fields
- 2    Frosty Flights
- 3    Tomato Temple
- 4    Happy Hamlet
- 5    Haunted Hills
- 6    Junk Junction
- 7    Lazy Links
- 8    Lonely Lodge
- 9    Loot Lake
-10    Lucky Landing
-11    Paradise Palms
-12    Pleasant Park
-13    Polar Peak
-14    Retail Row
-15    Salty Springs
-16    Shifty Shafts
-17    Snobby Shores
-18    The Block
-19    Tilted Towers
-20    Wailing Woods
+-------------- Fortnite ---------------
+  ID   Location        Weight  % Chance
+  -------------------------------------
+   0 - Dusty Divot     - 5     - 4.8%
+   1 - Fatal Fields    - 5     - 4.8%
+   2 - Frosty Flights  - 5     - 4.8%
+   3 - Tomato Temple   - 5     - 4.8%
+   4 - Happy Hamlet    - 5     - 4.8%
+   5 - Haunted Hills   - 5     - 4.8%
+   6 - Junk Junction   - 5     - 4.8%
+   7 - Lazy Links      - 5     - 4.8%
+   8 - Lonely Lodge    - 5     - 4.8%
+   9 - Loot Lake       - 5     - 4.8%
+  10 - Lucky Landing   - 5     - 4.8%
+  11 - Paradise Palms  - 5     - 4.8%
+  12 - Pleasant Park   - 5     - 4.8%
+  13 - Polar Peak      - 5     - 4.8%
+  14 - Retail Row      - 5     - 4.8%
+  15 - Salty Springs   - 5     - 4.8%
+  16 - Shifty Shafts   - 5     - 4.8%
+  17 - Snobby Shores   - 5     - 4.8%
+  18 - The Block       - 5     - 4.8%
+  19 - Tilted Towers   - 5     - 4.8%
+  20 - Wailing Woods   - 5     - 4.8%
+  ------------------------------------
+Total weight: 105
+
+------------ Apex Legends -------------
+  ID   Location        Weight  % Chance
+  -------------------------------------
+   0 - Airbase         - 5     - 5.9%
+   1 - Artillery       - 5     - 5.9%
+   2 - Bridges         - 5     - 5.9%
+   3 - Bunker          - 5     - 5.9%
+   4 - Cascades        - 5     - 5.9%
+   5 - Hydro Dam       - 5     - 5.9%
+   6 - Market          - 5     - 5.9%
+   7 - Relay           - 5     - 5.9%
+   8 - Repulsor        - 5     - 5.9%
+   9 - Runoff          - 5     - 5.9%
+  10 - Skull Town      - 5     - 5.9%
+  11 - Slum Lakes      - 5     - 5.9%
+  12 - Swamps          - 5     - 5.9%
+  13 - The Pit         - 5     - 5.9%
+  14 - Thunderdome     - 5     - 5.9%
+  15 - Water Treatment - 5     - 5.9%
+  16 - Wetlands        - 5     - 5.9%
+  ------------------------------------
+Total weight: 85
 
 [weight] can be 0 to 10.
  10 being most likely to be chosen.
