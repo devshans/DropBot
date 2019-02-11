@@ -1,6 +1,6 @@
 
 <p align="center"><img src="https://images.discordapp.net/avatars/487298106849886224/3a7aecf76365ae6df789ff9486a32d47.png"></p>
-<h1 align="center">Fortnite DropBot</h1>
+<h1 align="center">Apex Legends and Fortnite DropBot</h1>
 
 <p align="center">
   <a href="https://discordbots.org/bot/487298106849886224" >
