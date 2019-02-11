@@ -1,14 +1,14 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 6.4.0
+    @version    : 7.1.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
     @description: DropBot automated Bot for Discord Application.
                   Uses discord.io Discordapp library.
                   Randomly selects a location to start in for 
-                    the Fortnite Battle Royale game. 
+                    the Apex Legends and Fortnite Battle Royale games.
 		  Hosted on AWS.
 
     Discord support server: https://discord.gg/YJWEsvV
@@ -87,7 +87,9 @@ AWS.config.update({
 var docClient = new AWS.DynamoDB.DocumentClient();
 
 // DynamoDB Table Names
-var dbTableLocations = "DropLocations";
+var dbTableLocationsFN = "DropLocations";
+var dbTableLocationsAL = "DropLocationsAL";
+
 if (developerMode) {
     var dbTableGuilds    = "dev_DropGuilds";
     var dbTableUsers     = "dev_DropUsers";
@@ -97,7 +99,7 @@ if (developerMode) {
 }
 
 // Fortnite specific stuff
-var dropLocationNames = [
+var dropLocationNamesFN = [
     "Dusty Divot"
     ,"Fatal Fields"
     ,"Frosty Flights"
@@ -121,6 +123,27 @@ var dropLocationNames = [
     ,"Wailing Woods"
 ];
 
+// Apex specific stuff
+var dropLocationNamesAL = [
+    "Airbase"
+    ,"Artillery"
+    ,"Bridges"
+    ,"Bunker"
+    ,"Cascades"
+    ,"Hydro Dam"
+    ,"Market"
+    ,"Relay"
+    ,"Repulsor"
+    ,"Runoff"
+    ,"Skull Town"
+    ,"Slum Lakes"
+    ,"Swamps"
+    ,"The Pit"
+    ,"Thunderdome"
+    ,"Water Treatment"
+    ,"Wetlands"
+];
+
 // Database status in memory
 var serverInitialized   = {};
 var dropUserInitialized = {};
@@ -132,11 +155,14 @@ var dropUserBlocked     = {};
 var dropUserIsVoter     = {};
 var dropUserWarned      = {};
 
-var serverTotalCount    = 0;
-var serverDropLocations = {};
-var serverDropWeights   = {};
-var serverAudioMute     = {};
-var serverActiveVoice   = {}; // Servers that DropBot is actively speaking on.
+var serverTotalCount      = 0;
+var serverDropLocationsFN = {};
+var serverDropWeightsFN   = {};
+var serverDropLocationsAL = {};
+var serverDropWeightsAL   = {};
+var serverAudioMute       = {};
+var serverUpdateNotice    = {};
+var serverActiveVoice     = {}; // Servers that DropBot is actively speaking on.
 
 var dropIntros = [
      'intro.wav'
@@ -144,18 +170,27 @@ var dropIntros = [
     ,'intro3.wav'
 ];
 
-
 var legalCommands = [
      "h"
     ,"help"    
     ,"error"
+    ,"d"
     ,"drop"
+    ,"a"
+    ,"apex"
+    ,"adrop"
+    ,"f"
+    ,"fn"
+    ,"fortnite"
+    ,"fdrop"
     ,"v"
     ,"vote"
     ,"m"
     ,"mute"
     ,"u"
     ,"unmute"
+    ,"aset"
+    ,"fset"
     ,"set"
     ,"i"
     ,"info"
@@ -201,8 +236,11 @@ function onScan(err, data) {
     }
 }
 
-var defaultWeights = [];
-initDefaultWeights().then((result) => console.log("Retrieved default weights."));
+var defaultWeightsFN = [];
+initDefaultWeightsFN().then((result) => console.log("Retrieved default weights for Fortnite."));
+
+var defaultWeightsAL = [];
+initDefaultWeightsAL().then((result) => console.log("Retrieved default weights for Apex Legends."));
 
 // Init Discord Bot
 var bot = new Discord.Client({
@@ -242,10 +280,12 @@ async function initGuildDatabase(guildName, guildID) {
     return new Promise(function(resolve, reject) {
 
         var guildPromise = getDropBotGuilds(guildID);
+        serverUpdateNotice[guildID] = false;
 
         guildPromise.then(function(result) {
 
-            var stringDB = defaultWeights.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});
+            var dbStringFN = defaultWeightsFN.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});
+	    var dbStringAL = defaultWeightsAL.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});         
 
             if (result.Item == null) {
                 // Create entry in database.
@@ -256,8 +296,10 @@ async function initGuildDatabase(guildName, guildID) {
                         "name":guildName,			
                         "id":guildID,
                         "numAccesses":1,
-                        "dropLocations":stringDB,
-			"audioMute":false
+                        "dropLocations":dbStringFN,
+                        "dropLocationsAL":dbStringAL,			
+			"audioMute":false,
+                        "updateNotice":true,
                     }
                 };
 
@@ -273,6 +315,14 @@ async function initGuildDatabase(guildName, guildID) {
 
             } else {
                 if (DEBUG_DATABASE) console.log("Server already exists in database..");
+
+                //fixme - SPS. Push these servers to a queue that is sent out separately.
+                // Send a message to the server if it is the first access since an update.
+                if (! (result.Item.updateNotice)) {
+                    serverUpdateNotice[guildID] = true;
+                    console.log("*** Sending update message to server: " + guildID);
+                }
+                
                 resolve(result);
             }
 
@@ -421,18 +471,20 @@ async function updateGuildAll(guildID) {
 
     return new Promise(function(resolve, reject) {
 
-        if (DEBUG_DATABASE) console.log("updateGuildDrops for server: ", guildID);
+        if (DEBUG_DATABASE) console.log("updateGuildAll for server: ", guildID);
 
-        var stringDB = serverDropLocations[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
+        var dbStringFN = serverDropLocationsFN[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
+        var dbStringAL = serverDropLocationsAL[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});	
 
         var params = {
             TableName: dbTableGuilds,
             Key:{
                 "id":guildID
             },
-            UpdateExpression: "set dropLocations = :d, audioMute = :bool, numAccesses = numAccesses + :val",
+            UpdateExpression: "set dropLocations = :dfn, dropLocationsAL = :dal, audioMute = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
-                ":d":stringDB,
+                ":dfn":dbStringFN,
+		":dal":dbStringAL,
                 ":bool":serverAudioMute[guildID],
                 ":val":1
             },
@@ -443,7 +495,7 @@ async function updateGuildAll(guildID) {
             if (DEBUG_DATABASE) console.log("Successfully updated entry.");
             resolve(result);
         }, function(err) {
-            console.error("ERROR updateGuildDrops: Failed to update database entry.\n" + err);
+            console.error("ERROR updateGuildAll: Failed to update database entry.\n" + err);
             reject(err);
         });
 
@@ -452,13 +504,13 @@ async function updateGuildAll(guildID) {
 }
 
 
-async function updateGuildDrops(guildID) {
+async function updateGuildDropsFN(guildID) {
 
     return new Promise(function(resolve, reject) {
 
-        if (DEBUG_DATABASE) console.log("updateGuildDrops for server: ", guildID);
+        if (DEBUG_DATABASE) console.log("updateGuildDropsFN for server: ", guildID);
 
-        var stringDB = serverDropLocations[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
+        var dbStringFN = serverDropLocationsFN[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
 
         var params = {
             TableName: dbTableGuilds,
@@ -467,7 +519,7 @@ async function updateGuildDrops(guildID) {
             },
             UpdateExpression: "set dropLocations = :d, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
-                ":d":stringDB,
+                ":d":dbStringFN,
                 ":val":1
             },
             ReturnValues:"UPDATED_NEW"
@@ -477,7 +529,40 @@ async function updateGuildDrops(guildID) {
             if (DEBUG_DATABASE) console.log("Successfully updated entry.");
             resolve(result);
         }, function(err) {
-            console.error("ERROR updateGuildDrops: Failed to update database entry.\n" + err);
+            console.error("ERROR updateGuildDropsFN: Failed to update database entry.\n" + err);
+            reject(err);
+        });
+
+    });
+
+}
+
+async function updateGuildDropsAL(guildID) {
+
+    return new Promise(function(resolve, reject) {
+
+        if (DEBUG_DATABASE) console.log("updateGuildDropsAL for server: ", guildID);
+
+        var dbStringAL = serverDropLocationsAL[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
+
+        var params = {
+            TableName: dbTableGuilds,
+            Key:{
+                "id":guildID
+            },
+            UpdateExpression: "set dropLocationsAL = :d, numAccesses = numAccesses + :val",
+            ExpressionAttributeValues:{
+                ":d":dbStringAL,
+                ":val":1
+            },
+            ReturnValues:"UPDATED_NEW"
+        };
+
+        docClient.update(params).promise().then(function(result) {
+            if (DEBUG_DATABASE) console.log("Successfully updated entry.");
+            resolve(result);
+        }, function(err) {
+            console.error("ERROR updateGuildDropsAL: Failed to update database entry.\n" + err);
             reject(err);
         });
 
@@ -499,7 +584,7 @@ async function updateGuildAudioMute(guildID) {
             UpdateExpression: "set audioMute = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
                 ":bool":serverAudioMute[guildID],
-                ":val":1                
+                ":val":1
             },
             ReturnValues:"UPDATED_NEW"
         };
@@ -516,7 +601,38 @@ async function updateGuildAudioMute(guildID) {
 
 }
 
-async function initDefaultWeights(guildID) {
+async function updateGuildUpdateNotice(guildID) {
+
+    return new Promise(function(resolve, reject) {
+
+        if (DEBUG_DATABASE) console.log("updateGuildUpdateNotice for server: ", guildID, " to \"true\"");
+
+        var params = {
+            TableName: dbTableGuilds,
+            Key:{
+                "id":guildID
+            },
+            UpdateExpression: "set updateNotice = :bool, numAccesses = numAccesses + :val",
+            ExpressionAttributeValues:{
+                ":bool":true,
+                ":val":1
+            },
+            ReturnValues:"UPDATED_NEW"
+        };
+
+        docClient.update(params).promise().then(function(result) {
+            console.log("Successfully updated entry.");
+            resolve(result);
+        }, function(err) {
+            console.error("ERROR updateGuildUpdateNotice: Failed to update database entry.\n" + err);
+            reject(err);
+        });
+
+    });
+
+}
+
+async function initDefaultWeightsFN(guildID) {
 
     return new Promise(function(resolve, reject) {
 
@@ -524,8 +640,8 @@ async function initDefaultWeights(guildID) {
 
         console.log("Getting default weights for bot.");
 
-        for (var id = 0; id < dropLocationNames.length; id++) {
-            promises.push(getDropLocation(id));
+        for (var id = 0; id < dropLocationNamesFN.length; id++) {
+            promises.push(getDropLocationFN(id));
         }
 
         Promise.all(promises).then((results) => {
@@ -534,17 +650,52 @@ async function initDefaultWeights(guildID) {
                 var dropLocationWeight = results[i].Item.defaultWeight;
                 var dropLocationName   = results[i].Item.name;
 
-                defaultWeights.push({
+                defaultWeightsFN.push({
                     id: results[i].Item.id,
                     weight: dropLocationWeight
                 });
 
             }
 
-            resolve(defaultWeights);
+            resolve(defaultWeightsFN);
 
         }).catch((e) => {
-            console.error("ERROR initDefaultWeights:\n" + e);
+            console.error("ERROR initDefaultWeightsFN:\n" + e);
+            reject(e);
+        });
+    });
+
+}
+
+async function initDefaultWeightsAL(guildID) {
+
+    return new Promise(function(resolve, reject) {
+
+        var promises = [];
+
+        console.log("Getting default weights for bot.");
+
+        for (var id = 0; id < dropLocationNamesAL.length; id++) {
+            promises.push(getDropLocationAL(id));
+        }
+
+        Promise.all(promises).then((results) => {
+
+            for (var i=0; i < results.length; i++) {
+                var dropLocationWeight = results[i].Item.defaultWeight;
+                var dropLocationName   = results[i].Item.name;
+
+                defaultWeightsAL.push({
+                    id: results[i].Item.id,
+                    weight: dropLocationWeight
+                });
+
+            }
+
+            resolve(defaultWeightsAL);
+
+        }).catch((e) => {
+            console.error("ERROR initDefaultWeightsAL:\n" + e);
             reject(e);
         });
     });
@@ -559,8 +710,10 @@ async function initGuild(guildID) {
 
         if (DEBUG_DATABASE) console.log("Getting dropLocation weights for server: " + guildID);
 
-        serverDropLocations[guildID] = [];
-        serverDropWeights[guildID]   = 0;
+        serverDropLocationsFN[guildID] = [];
+        serverDropWeightsFN[guildID]   = 0;
+        serverDropLocationsAL[guildID] = [];
+        serverDropWeightsAL[guildID]   = 0;
 	serverAudioMute[guildID]     = false;
         serverActiveVoice[guildID]   = false;
 
@@ -570,18 +723,30 @@ async function initGuild(guildID) {
                 console.error("ERROR initGuild " + guildID + ":\nresult.Item is null.");
                 reject ("result.Item is null");
             }
-            var myDropLocations = result.Item.dropLocations;
+	    
+            var myDropLocationsFN = result.Item.dropLocations;
+	    var myDropLocationsAL = result.Item.dropLocationsAL;
 
 	    serverAudioMute[guildID] = result.Item.audioMute;
 
-            for (var i in myDropLocations) {
-                serverDropWeights[guildID] += myDropLocations[i];
-                serverDropLocations[guildID].push({
+            for (var i in myDropLocationsFN) {
+                serverDropWeightsFN[guildID] += myDropLocationsFN[i];
+                serverDropLocationsFN[guildID].push({
                     id: i,
-                    weight: myDropLocations[i]
+                    weight: myDropLocationsFN[i]
                 });
             }
-            resolve(serverDropLocations[guildID]);
+
+	    for (var i in myDropLocationsAL) {
+                serverDropWeightsAL[guildID] += myDropLocationsAL[i];
+                serverDropLocationsAL[guildID].push({
+                    id: i,
+                    weight: myDropLocationsAL[i]
+                });
+            }
+	    
+            resolve(serverDropLocationsFN[guildID]);
+	    
         }).catch((e) => {
             console.error("ERROR initGuild " + guildID + ":\n" + e);
             reject(e);
@@ -869,17 +1034,19 @@ async function handleCommand(args, userID, channelID, guildID) {
         message += 'usage: db![option]\n\n';
         message += 'db![option]            Description\n';
         message += '----------------------------------\n';
-        message += 'db!                  : Uses the default command for choosing a drop location (\"db!drop\")\n';
-        message += 'db!drop              : Randomly choose a Fortnite location to drop based on server settings.\n';
-        message += 'db!mute              : Mutes DropBot audio in voice channel.\n';
-        message += 'db!unmute            : Unmutes DropBot audio. Requires user to be in a voice channel.\n';
-	message += 'db!settings          : Shows only DropBot settings on this server.\n';
-	message += 'db!reset             : Resets all DropBot settings to their defaults on this server.\n';
-        message += 'db!info              : Shows DropBot information and links/commands for additional help.\n';
-        message += 'db!stop              : Stop playing audio and remove DropBot from voice channel.\n';
-	message += 'db!help              : Show this help message again.\n';
-	message += 'db!vote              : Check and update vote status for bot within the last 24 hours without rate limit penalty.\n';
-        message += 'db!set [id] [weight] : Change the percentage chance of choosing each location. Use "db!set help" for more info.\n';
+        message += 'db!                   : Uses the default command for choosing a drop location (\"db!drop\")\n';
+        message += 'db!drop / db!fortnite : Randomly choose a Fortnite location to drop based on server settings.\n';
+        message += 'db!apex               : Randomly choose an Apex Legends location to drop based on server settings.\n';
+        message += 'db!mute               : Mutes DropBot audio in voice channel.\n';
+        message += 'db!unmute             : Unmutes DropBot audio. Requires user to be in a voice channel.\n';
+	message += 'db!settings           : Shows all DropBot settings on this server.\n';
+	message += 'db!reset              : Resets all DropBot settings to their defaults on this server.\n';
+        message += 'db!info               : Shows DropBot information and links/commands for additional help.\n';
+        message += 'db!stop               : Stop playing audio and remove DropBot from voice channel.\n';
+	message += 'db!help               : Show this help message again.\n';
+	message += 'db!vote               : Check and update vote status for bot within the last 24 hours without rate limit penalty.\n';
+        message += 'db!set  [id] [weight] : Change the percentage chance of choosing each Fortnite location. Use "db!set help" for more info.\n';
+        message += 'db!aset [id] [weight] : Change the percentage chance of choosing each Apex Legends location. Use "db!set help" for more info.\n';
         message += '----------------------------------\n';
         message += '```';
         break;
@@ -989,13 +1156,14 @@ async function handleCommand(args, userID, channelID, guildID) {
         updateGuildAudioMute(guildID);
 	break;
 
+    case 'fset':        
     case 'set':
 
         var validChange         = true;
         var setId               = Number(args[0]);
         var setWeight           = Number(args[1]);
         var previousWeight      = -1;
-        var previousTotalWeight = serverDropWeights[guildID];
+        var previousTotalWeight = serverDropWeightsFN[guildID];
         var nextTotalWeight     = 0;
 
         message = '\u200B';
@@ -1028,50 +1196,51 @@ async function handleCommand(args, userID, channelID, guildID) {
             validChange = false;
         }
 
-        if (validChange && serverDropLocations[guildID][setId]['weight'] == setWeight) {
-            message += "ERROR: Weight for " + dropLocationNames[setId] + " is already " + setWeight;
+        if (validChange && serverDropLocationsFN[guildID][setId]['weight'] == setWeight) {
+            message += "ERROR: Weight for " + dropLocationNamesFN[setId] + " is already " + setWeight;
             validChange = false;
         }        
 
         if (validChange) {
-            message += "Setting weight for " + dropLocationNames[setId] + " to " + setWeight;
-            serverDropLocations[guildID][setId]['weight'] = setWeight;
+            message += "Setting weight for " + dropLocationNamesFN[setId] + " to " + setWeight;
+            serverDropLocationsFN[guildID][setId]['weight'] = setWeight;
 
-            previousWeight = Number(serverDropLocations[guildID][setId]['weight']);
+            previousWeight = Number(serverDropLocationsFN[guildID][setId]['weight']);
             
             nextTotalWeight = 0;
-            for (var i=0; i < dropLocationNames.length; i++) {
-                nextTotalWeight += Number(serverDropLocations[guildID][i]['weight']);
+            for (var i=0; i < dropLocationNamesFN.length; i++) {
+                console.log("HUH... " + i + " " + serverDropLocationsFN[guildID][i]);
+                nextTotalWeight += Number(serverDropLocationsFN[guildID][i]['weight']);
             }
             
             if (nextTotalWeight < 1) {
                 message += "ERROR: All weights must add up to at least 1";
-                serverDropLocations[guildID][setId]['weight'] = previousWeight;
+                serverDropLocationsFN[guildID][setId]['weight'] = previousWeight;
                 validChange = false;
             }
             
         } else {
         
-            for (var i=0; i < dropLocationNames.length; i++) {        
-                nextTotalWeight += Number(serverDropLocations[guildID][i]['weight']);
+            for (var i=0; i < dropLocationNamesFN.length; i++) {        
+                nextTotalWeight += Number(serverDropLocationsFN[guildID][i]['weight']);
             }
 
         }
 
-        serverDropWeights[guildID] = nextTotalWeight;
+        serverDropWeightsFN[guildID] = nextTotalWeight;
 
         
         var sendMessage = "```";
-        sendMessage += "Total weight:\n", serverDropWeights[guildID];
-	sendMessage += "---------------------------------------\n\n";
-        sendMessage += "  ID   Location       Weight  % Chance\n";
-        sendMessage += "  ------------------------------------\n";
+        
+	sendMessage += "-------------- Fortnite ---------------\n";
+        sendMessage += "  ID   Location        Weight  % Chance\n";
+        sendMessage += "  -------------------------------------\n";
 
-        for (var i=0; i < dropLocationNames.length; i++) {
+        for (var i=0; i < dropLocationNamesFN.length; i++) {
             var dropLocationID     = i;;
-            var dropLocationWeight = Number(serverDropLocations[guildID][i]['weight']);
-            var dropLocationName   = dropLocationNames[dropLocationID];
-            var dropChance         = serverDropLocations[guildID][dropLocationID]['weight'] / serverDropWeights[guildID] * 100;
+            var dropLocationWeight = Number(serverDropLocationsFN[guildID][i]['weight']);
+            var dropLocationName   = dropLocationNamesFN[dropLocationID];
+            var dropChance         = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
 
             sendMessage += "  ";
@@ -1079,7 +1248,7 @@ async function handleCommand(args, userID, channelID, guildID) {
             else                     sendMessage += dropLocationID;
 
             sendMessage += " - " + dropLocationName;
-            for (var j = dropLocationName.length; j < 14; j++) {
+            for (var j = dropLocationName.length; j < 15; j++) {
                 sendMessage += " ";
             }
 
@@ -1090,13 +1259,13 @@ async function handleCommand(args, userID, channelID, guildID) {
             
         }        
         
-        sendMessage += "  -----------------------------\n";
-	sendMessage += "Total weight: " + serverDropWeights[guildID] + "\n";        
+        sendMessage += "  ------------------------------\n";
+	sendMessage += "Total weight: " + serverDropWeightsFN[guildID] + "\n";        
 
         sendMessage += "```";
 
         if (validChange) {
-            updateGuildDrops(guildID).then(result => {
+            updateGuildDropsFN(guildID).then(result => {
                 
                 setTimeout(function() {
                     bot.sendMessage({
@@ -1106,7 +1275,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 }, 500);
 
             }).catch((e) => {
-                console.error("ERROR updateGuildDrops: " + e);
+                console.error("ERROR updateGuildDropsFN: " + e);
             });
         } else {
             setTimeout(function() {
@@ -1119,6 +1288,136 @@ async function handleCommand(args, userID, channelID, guildID) {
         
         break;
 
+    case 'aset':
+
+        var validChange         = true;
+        var setId               = Number(args[0]);
+        var setWeight           = Number(args[1]);
+        var previousWeight      = -1;
+        var previousTotalWeight = serverDropWeightsAL[guildID];
+        var nextTotalWeight     = 0;
+
+        message = '\u200B';
+
+        if (args.length == 0 || (args.length == 1 && args[0] == "help")) {
+	    message +=  'Help for changing drop location chance\n';
+            validChange = false;
+            message += '```';
+            message += 'db!set [id] [weight]\n';
+            message += '```';	    
+	}
+
+        if (validChange && args.length < 2) {
+            message = "Please specify the index and weight.";
+            validChange = false;            
+        }
+        
+        if (validChange && ! (Number.isInteger(setId)) || ! (Number.isInteger(setWeight))) {
+            message += "ERROR: [id] and [weight] arguments must both be numbers.";
+            validChange = false;
+        }
+        
+        if (validChange && setId > (NUM_DROP_LOCATIONS-1) || setId < 0) {
+            message += "ERROR: [id] must be within the range of 0 to " + (NUM_DROP_LOCATIONS-1);
+            validChange = false;
+        }
+        
+        if (validChange && setWeight > MAX_WEIGHT || setWeight < 0) {
+            message += "ERROR: [weight] must be within the range of 0 to " + MAX_WEIGHT;
+            validChange = false;
+        }
+
+        if (validChange && serverDropLocationsAL[guildID][setId]['weight'] == setWeight) {
+            message += "ERROR: Weight for " + dropLocationNamesAL[setId] + " is already " + setWeight;
+            validChange = false;
+        }        
+
+        if (validChange) {
+            message += "Setting weight for " + dropLocationNamesAL[setId] + " to " + setWeight;
+            serverDropLocationsAL[guildID][setId]['weight'] = setWeight;
+
+            previousWeight = Number(serverDropLocationsAL[guildID][setId]['weight']);
+            
+            nextTotalWeight = 0;
+            for (var i=0; i < dropLocationNamesAL.length; i++) {
+                nextTotalWeight += Number(serverDropLocationsAL[guildID][i]['weight']);
+            }
+            
+            if (nextTotalWeight < 1) {
+                message += "ERROR: All weights must add up to at least 1";
+                serverDropLocationsAL[guildID][setId]['weight'] = previousWeight;
+                validChange = false;
+            }
+            
+        } else {
+        
+            for (var i=0; i < dropLocationNamesAL.length; i++) {        
+                nextTotalWeight += Number(serverDropLocationsAL[guildID][i]['weight']);
+            }
+
+        }
+
+        serverDropWeightsAL[guildID] = nextTotalWeight;
+
+        
+        var sendMessage = "```";
+
+	sendMessage += "------------ Apex Legends -------------\n";
+        sendMessage += "  ID   Location        Weight  % Chance\n";
+        sendMessage += "  -------------------------------------\n";            
+
+        for (var i=0; i < dropLocationNamesAL.length; i++) {
+            var dropLocationID     = i;;
+            var dropLocationWeight = Number(serverDropLocationsAL[guildID][i]['weight']);
+            var dropLocationName   = dropLocationNamesAL[dropLocationID];
+            var dropChance         = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;
+            if (dropChance != 100) dropChance = dropChance.toPrecision(2);
+
+            sendMessage += "  ";
+            if (dropLocationID < 10) sendMessage += " " + dropLocationID;
+            else                     sendMessage += dropLocationID;
+
+            sendMessage += " - " + dropLocationName;
+            for (var j = dropLocationName.length; j < 15; j++) {
+                sendMessage += " ";
+            }
+
+            sendMessage += " - " + dropLocationWeight + "   ";
+            if (dropLocationWeight != 10) sendMessage += " ";
+
+            sendMessage += " - " + dropChance + "%\n";
+            
+        }        
+        
+        sendMessage += "  ------------------------------\n";
+	sendMessage += "Total weight: " + serverDropWeightsAL[guildID] + "\n";        
+
+        sendMessage += "```";
+
+        if (validChange) {
+            updateGuildDropsAL(guildID).then(result => {
+                
+                setTimeout(function() {
+                    bot.sendMessage({
+                        to: channelID,
+                        message: sendMessage
+                    });
+                }, 500);
+
+            }).catch((e) => {
+                console.error("ERROR updateGuildDropsAL: " + e);
+            });
+        } else {
+            setTimeout(function() {
+                bot.sendMessage({
+                    to: channelID,
+                    message: sendMessage
+                });
+            }, 500);
+        }
+        
+        break;
+        
     case 'i':        
     case 'info':
 
@@ -1145,9 +1444,11 @@ async function handleCommand(args, userID, channelID, guildID) {
 
         readGuild(guildID).then(result => {
 
-            var myDropLocations        = result.Item.dropLocations;
-	    serverAudioMute[guildID]   = result.Item.audioMute;
-	    serverDropWeights[guildID] = 0;
+            var myDropLocationsFN        = result.Item.dropLocations;
+            var myDropLocationsAL        = result.Item.dropLocationsAL;
+	    serverAudioMute[guildID]     = result.Item.audioMute;
+	    serverDropWeightsFN[guildID] = 0;
+            serverDropWeightsAL[guildID] = 0;
 	    
             var sendMessage = "```";
 
@@ -1155,24 +1456,24 @@ async function handleCommand(args, userID, channelID, guildID) {
             sendMessage += "---------------------------------\n";
 	    sendMessage += "Server ID   : " + result.Item.id + "\n";
 	    sendMessage += "Server Name : " + result.Item.name + "\n";
-	    sendMessage += "Audio Muted : " + serverAudioMute[guildID] + "\n";
-	    sendMessage += "---------------------------------------\n\n";
-            sendMessage += "  ID   Location       Weight  % Chance\n";
-            sendMessage += "  ------------------------------------\n";
+	    sendMessage += "Audio Muted : " + serverAudioMute[guildID] + "\n\n";
+	    sendMessage += "-------------- Fortnite ---------------\n";
+            sendMessage += "  ID   Location        Weight  % Chance\n";
+            sendMessage += "  -------------------------------------\n";
             
-            if (serverDropWeights[guildID] == null || serverDropWeights[guildID] == 0) {
-                serverDropWeights[guildID] = 0;
-                for (var i in myDropLocations) {
-                    serverDropWeights[guildID] += myDropLocations[i];
+            if (serverDropWeightsFN[guildID] == null || serverDropWeightsFN[guildID] == 0) {
+                serverDropWeightsFN[guildID] = 0;
+                for (var i in myDropLocationsFN) {
+                    serverDropWeightsFN[guildID] += myDropLocationsFN[i];
                 }
             }
 
-            for (var i in myDropLocations) {
+            for (var i in myDropLocationsFN) {
 
                 var dropLocationID = i;
-                var dropLocationWeight = myDropLocations[i];
-                var dropLocationName   = dropLocationNames[dropLocationID];
-                var dropChance         = serverDropLocations[guildID][dropLocationID]['weight'] / serverDropWeights[guildID] * 100;
+                var dropLocationWeight = myDropLocationsFN[i];
+                var dropLocationName   = dropLocationNamesFN[dropLocationID];
+                var dropChance         = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;
                 if (dropChance != 100) dropChance = dropChance.toPrecision(2);
 
 		sendMessage += "  ";
@@ -1180,7 +1481,7 @@ async function handleCommand(args, userID, channelID, guildID) {
                 else                     sendMessage += dropLocationID;
 
                 sendMessage += " - " + dropLocationName;
-                for (var j = dropLocationName.length; j < 14; j++) {
+                for (var j = dropLocationName.length; j < 15; j++) {
                     sendMessage += " ";
                 }
 
@@ -1192,8 +1493,46 @@ async function handleCommand(args, userID, channelID, guildID) {
             }
 
             sendMessage += "  ------------------------------------\n";
-	    sendMessage += "Total weight: " + serverDropWeights[guildID] + "\n";
+	    sendMessage += "Total weight: " + serverDropWeightsFN[guildID] + "\n\n";
 
+	    sendMessage += "------------ Apex Legends -------------\n";
+            sendMessage += "  ID   Location        Weight  % Chance\n";
+            sendMessage += "  -------------------------------------\n";            
+
+            if (serverDropWeightsAL[guildID] == null || serverDropWeightsAL[guildID] == 0) {
+                serverDropWeightsAL[guildID] = 0; //fixme - SPS. needed?
+                for (var i in myDropLocationsAL) {
+                    serverDropWeightsAL[guildID] += myDropLocationsAL[i];
+                }
+            }
+
+            for (var i in myDropLocationsAL) {
+
+                var dropLocationID = i;
+                var dropLocationWeight = myDropLocationsAL[i];
+                var dropLocationName   = dropLocationNamesAL[dropLocationID];
+                var dropChance         = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;
+                if (dropChance != 100) dropChance = dropChance.toPrecision(2);
+
+		sendMessage += "  ";
+                if (dropLocationID < 10) sendMessage += " " + dropLocationID;
+                else                     sendMessage += dropLocationID;
+
+                sendMessage += " - " + dropLocationName;
+                for (var j = dropLocationName.length; j < 15; j++) {
+                    sendMessage += " ";
+                }
+
+                sendMessage += " - " + dropLocationWeight + "   ";
+                if (dropLocationWeight != 10) sendMessage += " ";
+
+                sendMessage += " - " + dropChance + "%\n";
+                
+            }
+            
+            sendMessage += "  ------------------------------------\n";
+	    sendMessage += "Total weight: " + serverDropWeightsAL[guildID] + "\n\n";
+            
             sendMessage += "```";
 
             setTimeout(function() {
@@ -1208,7 +1547,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         });
 
         break;
-
+        
     // Exits all voice channels in the server that DropBot is active in. Regardless of user being active there.
     // Won't stop the existing command but will not play audio and should leave the voice channel immediately.
     case 'stop':
@@ -1253,7 +1592,7 @@ async function handleCommand(args, userID, channelID, guildID) {
         readGuild(guildID).then(result => {
 
 	    serverAudioMute[guildID]   = false;
-	    //serverDropWeights[guildID] = 0;
+	    //serverDropWeightsFN[guildID] = 0;
 	    
             var sendMessage = "```";
 
@@ -1262,25 +1601,25 @@ async function handleCommand(args, userID, channelID, guildID) {
 	    sendMessage += "Server ID   : " + result.Item.id + "\n";
 	    sendMessage += "Server Name : " + result.Item.name + "\n";
 	    sendMessage += "Audio Muted : " + serverAudioMute[guildID] + "\n";
-	    sendMessage += "---------------------------------------\n\n";
+	    sendMessage += "------------- Fortnite ---------------\n";
             sendMessage += "  ID   Location       Weight  % Chance\n";
             sendMessage += "  ------------------------------------\n";
 
-            serverDropLocations[guildID] = [];
-            serverDropWeights[guildID]   = 0;
+            serverDropLocationsFN[guildID] = [];
+            serverDropWeightsFN[guildID]   = 0;
             for (var dropLocationID in result.Item.dropLocations) {
-                serverDropLocations[guildID].push({
+                serverDropLocationsFN[guildID].push({
                     id: dropLocationID,
-                    weight: defaultWeights[dropLocationID]['weight']
+                    weight: defaultWeightsFN[dropLocationID]['weight']
                 });
-                serverDropWeights[guildID] += Number(defaultWeights[dropLocationID]['weight']);
+                serverDropWeightsFN[guildID] += Number(defaultWeightsFN[dropLocationID]['weight']);
             }
-            
-            for (var dropLocationID in serverDropLocations[guildID]) {
+	    
+            for (var dropLocationID in serverDropLocationsFN[guildID]) {
 
-                var dropLocationWeight = Number(serverDropLocations[guildID][dropLocationID]['weight']);
-                var dropLocationName   = dropLocationNames[dropLocationID];
-                var dropChance         = serverDropLocations[guildID][dropLocationID]['weight'] / serverDropWeights[guildID] * 100;
+                var dropLocationWeight = Number(serverDropLocationsFN[guildID][dropLocationID]['weight']);
+                var dropLocationName   = dropLocationNamesFN[dropLocationID];
+                var dropChance         = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;
                 if (dropChance != 100) dropChance = dropChance.toPrecision(2);
 
 		sendMessage += "  ";
@@ -1300,8 +1639,48 @@ async function handleCommand(args, userID, channelID, guildID) {
             }
 
             sendMessage += "  ------------------------------------\n";
-	    sendMessage += "Total weight: " + serverDropWeights[guildID] + "\n";
+	    sendMessage += "Total weight: " + serverDropWeightsFN[guildID] + "\n\n";
 
+	    sendMessage += "----------- Apex Legends -------------\n";
+            sendMessage += "  ID   Location       Weight  % Chance\n";
+            sendMessage += "  ------------------------------------\n";
+	    
+            serverDropLocationsAL[guildID] = [];
+            serverDropWeightsAL[guildID]   = 0;
+            for (var dropLocationID in result.Item.dropLocationsAL) {
+                serverDropLocationsAL[guildID].push({
+                    id: dropLocationID,
+                    weight: defaultWeightsAL[dropLocationID]['weight']
+                });
+                serverDropWeightsAL[guildID] += Number(defaultWeightsAL[dropLocationID]['weight']);
+            }
+
+            for (var dropLocationID in serverDropLocationsAL[guildID]) {
+
+                var dropLocationWeight = Number(serverDropLocationsAL[guildID][dropLocationID]['weight']);
+                var dropLocationName   = dropLocationNamesAL[dropLocationID];
+                var dropChance         = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;
+                if (dropChance != 100) dropChance = dropChance.toPrecision(2);
+
+		sendMessage += "  ";
+                if (dropLocationID < 10) sendMessage += " " + dropLocationID;
+                else                     sendMessage += dropLocationID;
+
+                sendMessage += " - " + dropLocationName;
+                for (var j = dropLocationName.length; j < 14; j++) {
+                    sendMessage += " ";
+                }
+
+                sendMessage += " - " + dropLocationWeight + "   ";
+                if (dropLocationWeight != 10) sendMessage += " ";
+
+                sendMessage += " - " + dropChance + "%\n";
+                
+            }
+
+            sendMessage += "  ------------------------------------\n";
+	    sendMessage += "Total weight: " + serverDropWeightsAL[guildID] + "\n";
+	    
             sendMessage += "```";            
 
             updateGuildAll(guildID).then(result => {
@@ -1326,10 +1705,13 @@ async function handleCommand(args, userID, channelID, guildID) {
 
     // Default command. Can be run with "db!"
     case '':
+    case 'd':
+    case 'fdrop':
+    case 'fortnite':
     case 'drop':
     case 'wwdb': // Where we droppin', boys?
        
-        var dropLocationID = rwc(serverDropLocations[guildID]);
+        var dropLocationID = rwc(serverDropLocationsFN[guildID]);
         var dropChance;
 
         if (dropLocationID == null) {
@@ -1338,10 +1720,10 @@ async function handleCommand(args, userID, channelID, guildID) {
             break;
         }
 
-        if (DEBUG_COMMAND) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNames[dropLocationID]);
+        if (DEBUG_COMMAND) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNamesFN[dropLocationID]);
 
-        if (serverDropLocations[guildID][dropLocationID]['weight']) {
-            dropChance = serverDropLocations[guildID][dropLocationID]['weight'] / serverDropWeights[guildID] * 100;                
+        if (serverDropLocationsFN[guildID][dropLocationID]['weight']) {
+            dropChance = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;                
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
             console.error("ERROR: dropLocationID " + dropLocationID + " is undefined");
@@ -1351,8 +1733,8 @@ async function handleCommand(args, userID, channelID, guildID) {
 
         message = '\u200BSo, where we droppin\' boys...';
 
-        var dropLocation = dropLocationNames[dropLocationID];
-        var dropLocationMessage = "```" + dropLocation + " (" + dropChance + "% chance)```" + "\nUse \"db!settings\" to see locations and chances.";
+        var dropLocation = dropLocationNamesFN[dropLocationID];
+        var dropLocationMessage = "```" + dropLocation + " (" + dropChance + "% chance) - Fortnite```" + "\nUse \"db!settings\" to see locations and chances.";
         var voiceChannelID = -1;
         var channels = bot.servers[guildID].channels;
         
@@ -1481,6 +1863,9 @@ async function handleCommand(args, userID, channelID, guildID) {
 
                                     var readStream = fs.createReadStream(introFile);
 
+                                    //fixme - SPS. Do we need to do cleanup here?
+                                    //   How to handle error, etc.
+                                    //fixme - SPS. Is this ever closed?
                                     readStream.on('error', function(error) {
                                         console.log("SPS ERROR 1 introFile:\n" + error);
                                     });
@@ -1522,6 +1907,8 @@ async function handleCommand(args, userID, channelID, guildID) {
 
                                             var readStream = fs.createReadStream(sfxFile);
 
+                                            //fixme - SPS. Do we need to do cleanup here?
+                                            //   How to handle error, etc.
                                             readStream.on('error', function(error) {
                                                 console.log("SPS ERROR 2 sfxFile:\n" + error);
                                             });                                
@@ -1585,7 +1972,286 @@ async function handleCommand(args, userID, channelID, guildID) {
             }
 
             if (voiceChannelID == -1) {
-		dropLocationMessage += "\n```Join a voice channel to get audio or mute DropBot using \"db!mute\" to remove this message.```";
+		dropLocationMessage += "\n```To announce location, join a voice channel to get audio or mute DropBot using \"db!mute\" to remove this message.```";
+                setTimeout(function() {
+		    bot.sendMessage({
+                        to: channelID,
+                        message: dropLocationMessage
+		    });
+                }, 500);
+            }
+
+	} // !(serverAudioMute)
+       
+        break;
+
+    case 'a':
+    case 'adrop':
+    case 'apex':
+    case 'adrop':
+       
+        var dropLocationID = rwc(serverDropLocationsAL[guildID]);
+        var dropChance;
+
+        if (dropLocationID == null) {
+            console.error("ERROR: Could not select a drop location.");
+            message = "\u200BERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
+            break;
+        }
+
+        if (DEBUG_COMMAND) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNamesAL[dropLocationID]);
+
+        if (serverDropLocationsAL[guildID][dropLocationID]['weight']) {
+            dropChance = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;                
+            if (dropChance != 100) dropChance = dropChance.toPrecision(2);
+        } else {
+            console.error("ERROR: dropLocationID " + dropLocationID + " is undefined");
+            message = "\u200BERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
+            break;
+        }
+
+        message = '\u200BSo, where we droppin\' boys...';
+
+        var dropLocation = dropLocationNamesAL[dropLocationID];
+        var dropLocationMessage = "```" + dropLocation + " (" + dropChance + "% chance) - Apex Legends```" + "\nUse \"db!settings\" to see locations and chances.";        
+        var voiceChannelID = -1;
+        var channels = bot.servers[guildID].channels;
+        
+	if (serverAudioMute[guildID]) {           
+
+            for (var thisChannelID in channels) {
+		if (voiceChannelID != -1) break;
+		var channel = channels[thisChannelID];
+
+		for (var m in channel.members) {
+                    if (voiceChannelID != -1) break;
+                    var member = channel.members[m];
+                    if (member.user_id == userID) {
+			voiceChannelID = thisChannelID;
+
+			if (DEBUG_COMMAND) console.log('Talking on channel : ' + channels[voiceChannelID].name + " [" + voiceChannelID + "]");
+
+                        if (serverActiveVoice[guildID]) {
+                            console.log("User warning: Voice channel active serverActiveVoice for " +
+                                        bot.servers[guildID].channels[voiceChannelID].name + " [" + voiceChannelID + "]");
+                        } else {
+		            dropLocationMessage += "\n```DropBot was used in a voice channel while muted. Use \"db!unmute\" to play audio.```";
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            serverActiveVoice[guildID] = false;
+            setTimeout(function() {
+		bot.sendMessage({
+                    to: channelID,
+                    message: dropLocationMessage
+		});
+            }, 500);
+
+	} else {
+	    
+            sfxFile = 'sfx_droplocations_al/' + dropLocation.split(' ').join('_').toLowerCase() + '.wav';
+            if (!fs.existsSync(sfxFile)) {
+		message = '\u200BOops... Tried to drop ' + dropLocation + ' but our audio file doesn\'t exist.';
+		break;
+            }
+
+            for (var thisChannelID in channels) {
+		if (voiceChannelID != -1) break;
+		var channel = channels[thisChannelID];
+
+		for (var m in channel.members) {
+                    if (voiceChannelID != -1) break;
+                    var member = channel.members[m];
+                    if (member.user_id == userID) {
+			voiceChannelID = thisChannelID;
+
+			if (DEBUG_COMMAND) console.log('Talking on channel : ' + channels[voiceChannelID].name + " [" + voiceChannelID + "]");
+
+                        if (serverActiveVoice[guildID]) {
+                            console.log("User warning: Voice channel active serverActiveVoice for " +
+                                        bot.servers[guildID].channels[voiceChannelID].name + " [" + voiceChannelID + "]");
+                            serverActiveVoice[guildID] = false;
+                            var sendMessage = "\u200B";
+                            sendMessage += "<@!" + userID + ">, <@!" + DROPBOT_ID + "> is already active in this server.\n";
+                            sendMessage += "Bot can only talk on 1 voice channel at a time. Wait until it\'s done speaking or use \"db!stop\"\n";
+			    bot.sendMessage({
+                                to: channelID,
+                                message: sendMessage
+			    });
+                            
+                            // Double check voice channel status a little while after.
+                            // Could potentially get locked in a race condition or strange error lock.
+                            setTimeout(function() {
+                                for (var innerChannelID in channels) {
+                                    if (channels[innerChannelID].type == 2) {
+                                        return 0;
+                                    }
+                                }
+                                serverActiveVoice[guildID] = false;
+                            }, 2000);
+
+                            return 0;
+                        }
+
+			bot.joinVoiceChannel(voiceChannelID, function(error, events) {
+                            if (error) {
+                                console.log("User warning: Voice channel active/permissions issue for " +
+                                            bot.servers[guildID].channels[voiceChannelID].name + " [" + voiceChannelID + "]");
+                                serverActiveVoice[guildID] = false;
+                                var sendMessage = "\u200B";
+                                sendMessage += "<@!" + userID + ">, <@!" + DROPBOT_ID + "> is having trouble communicating in this voice channel.\n";
+                                sendMessage += "This can happen if you have restricted channel permissions.\n";
+                                sendMessage += "If <@!" + DROPBOT_ID + "> is already active, wait until it\'s done speaking or use \"db!stop\"\n";
+                                sendMessage += "If all else fails, use \"db!mute\" to force <@!" + DROPBOT_ID + "> to only communicate in text channels.";
+				bot.sendMessage({
+                                    to: channelID,
+                                    message: sendMessage
+				});
+                                return 1;
+                            }
+
+                            var played2nd = false;
+                            var playbackUserErrorMessage = "Had a strange problem talking... Wait a sec?";
+                            
+                            bot.getAudioContext(voiceChannelID, function(error, stream) {
+				//Once again, check to see if any errors exist
+				if (error) {
+                                    console.log("WARNING: error with bot.getAudioContext:\n" + error);
+                                    serverActiveVoice[guildID] = false;
+                                    bot.sendMessage({
+					to: channelID,
+					message: playbackUserErrorMessage
+                                    });
+				    bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                        // Do not set the serverActiveVoice as false until we play the 2nd sound clip.
+                                        if (error) {
+                                            if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                console.log("WARNING: Error leaving voice channel 1:\n" + error);
+                                            }
+                                        } 
+                                    });
+                                    return 1;
+				}
+                                
+				if (fs.existsSync(sfxFile)) {
+                                    var introFile = 'sfx_droplocations/' + dropIntros[Math.floor(Math.random()*dropIntros.length)];
+                                    serverActiveVoice[guildID] = true;
+
+                                    var readStream = fs.createReadStream(introFile);
+
+                                    //fixme - SPS. Do we need to do cleanup here?
+                                    //   How to handle error, etc.
+                                    //fixme - SPS. Is this ever closed?
+                                    readStream.on('error', function(error) {
+                                        console.log("SPS ERROR 1 introFile:\n" + error);
+                                    });
+                                    
+                                    readStream.pipe(stream, {end: false});                  
+				} else {
+                                    console.error("ERROR: Could not find sfxFile: " + sfxFile + "");
+                                    serverActiveVoice[guildID] = false;
+                                    bot.sendMessage({
+					to: channelID,
+					message: playbackUserErrorMessage
+                                    });
+				    bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                        if (error) {
+                                            if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                console.log("WARNING: Error leaving voice channel 2:\n" + error);
+                                            }
+                                        } 
+                                    });
+				}
+                                
+				//The stream fires `done` when it's got nothing else to send to Discord.
+				stream.on('done', function() {
+                                    
+                                    // This event will fire when the 2nd stream is done so make sure
+                                    //   we only play it once.
+                                    if (played2nd) return 0;
+                                    played2nd = true;
+                                    
+                                    bot.sendMessage({
+					to: channelID,
+					message: dropLocationMessage
+                                    });
+
+                                    if (fs.existsSync(sfxFile)) {
+
+                                        setTimeout(function() {
+                                            serverActiveVoice[guildID] = true;
+
+                                            var readStream = fs.createReadStream(sfxFile);
+
+                                            //fixme - SPS. Do we need to do cleanup here?
+                                            //   How to handle error, etc.
+                                            readStream.on('error', function(error) {
+                                                console.log("SPS ERROR 2 sfxFile:\n" + error);
+                                            });                                
+					    readStream.pipe(stream, {end: false});
+
+                                            stream.on('done', function() {
+                                                serverActiveVoice[guildID] = false; // Set as done regardless of error
+				                bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                                    if (error) {
+                                                        if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                            console.log("WARNING: Error leaving voice channel 3:\n" + error);
+                                                        }
+                                                    } 
+                                                });
+                                            });
+
+                                            stream.on('error', function(error) {
+                                                serverActiveVoice[guildID] = false;
+                                                if (error) {
+                                                    if (typeof error === 'string' && error.trim() != "pipe:0: Immediate exit requested") {
+                                                        console.log("WARNING: Error with stream 2:\n" + error);
+                                                    } 
+                                                }
+                                            });                             
+                                            
+                                        }, 200);
+                                    } else {
+                                        console.error("ERROR: Could not find sfxFile: " + sfxFile + "");
+                                        serverActiveVoice[guildID] = false;
+                                        bot.sendMessage({
+					    to: channelID,
+					    message: playbackUserErrorMessage
+                                        });
+				        bot.leaveVoiceChannel(voiceChannelID, function(error, events) {
+                                            if (error) {
+                                                if (typeof error === 'string' && error.substring(0, 32) != "Error: Not in the voice channel:") {
+                                                    console.log("WARNING: Error leaving voice channel 4:\n" + error);
+                                                } 
+                                            } 
+                                        });
+                                    }
+
+				});
+                                stream.on('error', function(error) {
+
+                                    // Bit of a hack but works well enough to filter out the expected stream errors.
+                                    // Can also get these: WARNING: Error with stream 1: [mp3float @ 0x6cd4fc0]
+                                    //   when running commands from 2 users in different voice channels in the same server.
+                                    //   Doesn't seem to have any effect on the output or stability.
+                                    if (error) {
+                                        if (typeof error === 'string' && error.trim() != "pipe:0: Immediate exit requested") {
+                                            console.log("WARNING: Error with stream 1:\n" + error);
+                                            serverActiveVoice[guildID] = false;
+                                        } 
+                                    } 
+                                });
+                            });
+			});
+                    }
+		}
+            }
+
+            if (voiceChannelID == -1) {
+		dropLocationMessage += "\n```To announce location, join a voice channel to get audio or mute DropBot using \"db!mute\" to remove this message.```";
                 setTimeout(function() {
 		    bot.sendMessage({
                         to: channelID,
@@ -1647,6 +2313,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     var isDevUser = (DEVSHANS_ID == userID);
     var maxMessageLength = isDevUser ? 50 : 12;
 
+    //fixme - SPS. Make a counter to see if this continues to happen and report user.    
+    // If a user is banned, do not allow them to continue spamming the bot.
     if (dropUserBlocked[userID] && !(isDevUser)) return 0;
 
     // Our bot needs to know if it will execute a command
@@ -1699,7 +2367,15 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     var guildID = bot.channels[channelID].guild_id;
     var guildName = bot.servers[guildID].name;
 
-    var userDisc = bot.servers[guildID].members[userID].discriminator;
+    // 4 digit number returned from API. Guaranteed to be unique.
+    var userDisc = 696969;
+    
+    if (bot.servers[guildID].members[userID] === undefined ||
+        bot.servers[guildID].members[userID] == false) {
+        console.log("**** SPS ERROR: " + userID + " " + guildID + " discriminator not found.\n");        
+    } else {
+        userDisc = bot.servers[guildID].members[userID].discriminator;
+    }
 
     // Discord bot best practices ask that unsupported commands fail silently.
     //   Source: https://github.com/meew0/discord-bot-best-practices
@@ -1745,18 +2421,10 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         console.log("  message : " + message);
         console.log("---------------------------------------");  
     } 
-
-    // Ask to move to specific channels in Official DropBot Server
-    if (guildID == DROPBOT_SERVER_ID) { 
-        if (channelID != DROPBOT_TEST_CHANNEL_ID1 && channelID != DROPBOT_TEST_CHANNEL_ID2) {            
-            console.log("User " + user + "#" + userDisc + " [" + userID + "] in DropBot Official Server. Asked to move to correct channel.");
-            args = ["error", "\u200B<@!" + userID + ">, Please join either #dropbot-test-1 or #dropbot-test-2 channels."];
-            handleCommand(args, userID, channelID, guildID);
-            return 0;
-        }
-    }
     
     args = message.substring(3).split(' ');
+
+    var newUser = false;
 
     // First access from a server since reboot or new server.
     if (serverInitialized[guildID] === undefined || serverInitialized[guildID] == false) {
@@ -1773,6 +2441,21 @@ bot.on('message', function (user, userID, channelID, message, evt) {
             serverInitialized[guildID] = false; 
         }).then(() => {
 
+            if (serverUpdateNotice[guildID]) {
+                serverUpdateNotice[guildID] = false;
+                updateGuildUpdateNotice(guildID).then(result => {                
+                    setTimeout(function() {
+		        bot.sendMessage({
+		            to: channelID,
+		            message: "<@!" + userID + "> - DropBot has been updated to version 7.0! \n" +
+                                "Now supporting Apex Legends.\n\n" +
+                                "Use db!help for more info on commands.\n" +
+                                "Post on DropBot support server linked in db!help if you have any issues."
+		        });
+	            }, 5000);
+                });
+            }
+            
             initGuild(guildID).then(result => {
                 if (DEBUG_MESSAGE) console.log("initGuild " + guildID + " success.");
 
@@ -1786,6 +2469,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                 dropUserWarned[userID]  = false;
 
                 if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
+                    newUser = true;
 		    initUser(user, userID, userDisc, epochTime).then(result => {
                         dropUserInitialized[userID] = true;
 		        if (DEBUG_DATABASE) console.log("initUser " + userID + " in initGuild " +
@@ -1818,7 +2502,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
             });    
         });
 
-        // Do not execute anymore code in this function.
+        // Do not execute any more code in this function.
         // User and server are treated as new and command will be sent if setup was successful.
         return 0;
     }  
@@ -1833,11 +2517,13 @@ bot.on('message', function (user, userID, channelID, message, evt) {
         if (DEBUG_MESSAGE) console.log("Detected NEW user sending message in existing server: ", userID);
 
         epochTime = dateTime.getTime();
-        dropUserTimeout[userID] = epochTime;
+        dropUserTimeout[userID] = epochTime - 1000;
         dropUserStrikes[userID] = 0;
         dropUserStrikes[userID] = 0;
         dropUserBlocked[userID] = false;
         dropUserWarned[userID]  = false;
+
+        newUser = true;
         
 	initUser(user, userID, userDisc, epochTime).then(result => {
 	    if (DEBUG_DATABASE) console.log("initUser " + user + "[" + userID + "]success from on.message");
@@ -1846,6 +2532,8 @@ bot.on('message', function (user, userID, channelID, message, evt) {
 	});
     }
 
+    //fixme - SPS. Only send so many messages to each blocked user.
+    //  At some point, we have to ignore them. Counter can be reset at bot restart.
     if (STRIKE_SYSTEM_ENABLED) {
 	if (dropUserBlocked[userID] || dropUserStrikes[userID] == USER_MAX_STRIKES) {
 
@@ -1934,7 +2622,7 @@ bot.on('message', function (user, userID, channelID, message, evt) {
                     return 1;
                 } else {
 		    dropUserIsVoter[userID] = true;
-		    dropUserWarned[userID]  = false; 
+		    dropUserWarned[userID]  = false; //fixme - SPS. May be redundant...
                     if (DEBUG_VOTE) console.log("***** VOTE before handleCommand changed to " + voted + " for userID " + userID);
                     sendMessage  = "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
                     args = ["error", sendMessage];
@@ -1963,14 +2651,39 @@ bot.on('message', function (user, userID, channelID, message, evt) {
     dropUserBlocked[userID] = false;
     dropUserWarned[userID]  = false;
 
-    updateUser(userID, epochTime, false).then(result => {
+    // No need to update access time for new user. That will be done on initialization
+    if (newUser) {
         setTimeout(function() {
+
+            // Ask to move to specific channels in Official DropBot Server
+            if (guildID == DROPBOT_SERVER_ID) { 
+                if (channelID != DROPBOT_TEST_CHANNEL_ID1 && channelID != DROPBOT_TEST_CHANNEL_ID2) {            
+                    console.log("User " + user + "#" + userDisc + " [" + userID + "] in DropBot Official Server. Asked to move to correct channel.");
+                    args = ["error", "\u200B<@!" + userID + ">, Please join either #dropbot-test-1 or #dropbot-test-2 channels."];
+                }
+            }
+            
             handleCommand(args, userID, channelID, guildID);
         }, 100);
-    }).catch((err) => {
-        console.error("ERROR bot.on(message): ", err);
-    });  
-        
+    } else {
+        updateUser(userID, epochTime, false).then(result => {
+            setTimeout(function() {
+
+                // Ask to move to specific channels in Official DropBot Server
+                if (guildID == DROPBOT_SERVER_ID) { 
+                    if (channelID != DROPBOT_TEST_CHANNEL_ID1 && channelID != DROPBOT_TEST_CHANNEL_ID2) {            
+                        console.log("User " + user + "#" + userDisc + " [" + userID + "] in DropBot Official Server. Asked to move to correct channel.");
+                        args = ["error", "\u200B<@!" + userID + ">, Please join either #dropbot-test-1 or #dropbot-test-2 channels."];
+                    }
+                }
+                
+                handleCommand(args, userID, channelID, guildID);
+            }, 100);
+        }).catch((err) => {
+            console.error("ERROR updateUser bot.on(message): ", err);
+        });
+    }
+    
 }); // bot.on(message)
 
 // ----------------------------------------------------------------------------------------
@@ -2003,10 +2716,22 @@ async function getDropBotGuilds(id) {
     return docClient.get(params).promise();
 }
 
-async function getDropLocation(id) {
+async function getDropLocationFN(id) {
 
     var params = {
-        TableName: dbTableLocations,
+        TableName: dbTableLocationsFN,
+        Key:{
+            "id":id
+        }
+    };
+
+    return docClient.get(params).promise();
+}
+
+async function getDropLocationAL(id) {
+
+    var params = {
+        TableName: dbTableLocationsAL,
         Key:{
             "id":id
         }
