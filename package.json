@@ -1,6 +1,6 @@
 {
   "name": "DropBot",
-  "version": "7.1.0",
+  "version": "8.1.0",
   "description": "Discordapp bot that randomly selects a location to start/drop in for the Apex Legends and Fortnite Battle Royale games.",
   "main": "DropBot.js",
   "repository": {
@@ -13,14 +13,18 @@
     "Client",
     "Bot",
     "Library",
-    "Fortnite"
+    "Fortnite",
+    "Apex",
+    "Apex Legends"
   ],
   "dependencies": {
-    "aws-sdk": "^2.309.0",
-    "date-and-time": "^0.6.2",
+    "aws-sdk": "^2.394.0",
+    "date-and-time": "^0.6.3",
     "dblapi.js": "^2.3.0",
-    "discord.io": "github:woor/discord.io#gateway_v6",
-    "ffmpeg-binaries": "^4.0.0",
+    "discord.js": "^11.4.2",
+    "ffmpeg": "0.0.4",
+    "fs": "0.0.1-security",
+    "node-opus": "^0.3.1",
     "random-weighted-choice": "^0.1.3"
   },
   "author": "DevShans",
