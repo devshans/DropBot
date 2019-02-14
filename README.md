@@ -16,7 +16,7 @@ Randomly selects a location to start in for the Apex Legends and Fortnite Battle
 [Official Discord Bot](https://discordbots.org/bot/487298106849886224):
 https://discordbots.org/bot/487298106849886224
 
-A small, single-file, fully featured [Discordapp](https://discordapp.com) bot built using Node.js and [discord.io](https://github.com/izy521/discord.io).
+A small, single-file, fully featured [Discordapp](https://discordapp.com) bot built using Node.js and [discord.js](https://discord.js.org).
 Hosted on AWS.
 
 ## Add DropBot to server:
