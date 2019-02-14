@@ -110,7 +110,4 @@ Example: To remove Happy Hamlet from the list, send message:
 Example: To set Snobby Shores to the max chance, send message:
   "db!set 17 10
   ```
-
-### Requirements:
-* **Node.js 0.12.x** or greater
-* **ffmpeg/avconv** (needs to be added to PATH)
+  
