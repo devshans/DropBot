@@ -42,6 +42,7 @@ db!reset              : Resets all DropBot settings to their defaults on this se
 db!info               : Shows DropBot information and links/commands for additional help.
 db!stop               : Stop playing audio and remove DropBot from voice channel.
 db!help               : Show this help message again.
+db!donate             : Get link to donate to help support bot development and hosting fees.
 db!vote               : Check and update vote status for bot within the last 24 hours without rate limit penalty.
 db!set  [id] [weight] : Change the percentage chance of choosing each Fortnite location. Use "db!set help" for more info.
 db!aset [id] [weight] : Change the percentage chance of choosing each Apex Legends location. Use "db!set help" for more info.
