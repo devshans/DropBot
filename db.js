@@ -2,10 +2,6 @@ var AWS     = require("aws-sdk");
 
 var DEBUG_DATABASE = true;
 
-//fixme - SPS. Change this back for release.
-//var developerMode = filenameArray[filenameArray.length-1] == "DropBot-dev.js" ? true : false;
-var developerMode = true;
-
 AWS.config.update({
     region: "us-east-2",
     endpoint: "https://dynamodb.us-east-2.amazonaws.com"
@@ -18,7 +14,7 @@ var dbTableLocationsFN = "DropLocations";
 var dbTableLocationsAL = "DropLocationsAL";
 
 //fixme - SPS. Auto-detect like in main file
-var developerMode = true;
+var developerMode = false;
 
 if (developerMode) {
     var dbTableGuilds    = "dev_DropGuilds";
