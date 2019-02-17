@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 8.4.0
+    @version    : 8.5.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -49,6 +49,10 @@ const date    = require('date-and-time');
 // Discord ID of this bot to identify ourselves.
 const DROPBOT_ID      = "487298106849886224";
 const DEV_DROPBOT_ID  = "533851604651081728";
+
+const DROPBOT_SERVER_ID = "534217612805275658"; // Official DropBot Server
+const DROPBOT_TEST_CHANNEL_ID1 = "535268088569135116"; // dropbot-test-1
+const DROPBOT_TEST_CHANNEL_ID2 = "535268112833052672"; // dropbot-test-2
 
 var DEVSHANS_ID = -1;
 
@@ -125,6 +129,7 @@ var serverDropLocationsFN = {};
 var serverDropWeightsFN   = {};
 var serverDropLocationsAL = {};
 var serverDropWeightsAL   = {};
+var serverDefaultGame     = {}; 
 var serverAudioMute       = {};
 var serverUpdateNotice    = {};
 var serverActiveVoice     = {}; // Servers that DropBot is actively speaking on.
@@ -138,7 +143,7 @@ var dropIntros = [
 
 const client = new Discord.Client();
 
-const { prefix, token, webhookAuth } = require('./config.json');
+const { prefix, token, donateURL, webhookAuth } = require('./config.json');
 
 var filenameArray = __filename.split("/");
 
@@ -205,6 +210,7 @@ if (developerMode) {
         });
     });
 
+    
     //DBL webhooks
     app.post('/dblwebhook', async (req, res) => {
 
@@ -282,6 +288,7 @@ function onScan(err, data) {
             docClient.scan(params, onScan);
         } else {
 	    console.log("Done scanning dbTableUsers");
+            //console.log("Done reading " + dbTableUsers + " before starting bot for " + usersTotalCount + " users");
         }
     }
 }
@@ -560,10 +567,11 @@ async function updateGuildAll(guildID) {
             Key:{
                 "id":guildID
             },
-            UpdateExpression: "set dropLocations = :dfn, dropLocationsAL = :dal, audioMute = :bool, numAccesses = numAccesses + :val",
+            UpdateExpression: "set dropLocations = :dfn, dropLocationsAL = :dal, defaultGame = :dg, audioMute = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
                 ":dfn":dbStringFN,
 		":dal":dbStringAL,
+                ":dg":serverDefaultGame[guildID],
                 ":bool":serverAudioMute[guildID],
                 ":val":1
             },
@@ -642,6 +650,37 @@ async function updateGuildDropsAL(guildID) {
             resolve(result);
         }, function(err) {
             console.error("ERROR updateGuildDropsAL: Failed to update database entry.\n" + err);
+            reject(err);
+        });
+
+    });
+
+}
+
+async function updateGuildDefaultGame(guildID) {
+
+    return new Promise(function(resolve, reject) {
+
+        if (DEBUG_DATABASE) console.log("updateGuildDefaultGame for server: ", guildID, " to ", serverDefaultGame[guildID]);
+
+        var params = {
+            TableName: dbTableGuilds,
+            Key:{
+                "id":guildID
+            },
+            UpdateExpression: "set defaultGame = :dg, numAccesses = numAccesses + :val",
+            ExpressionAttributeValues:{
+                ":dg":serverDefaultGame[guildID],
+                ":val":1
+            },
+            ReturnValues:"UPDATED_NEW"
+        };
+
+	dbAWS.databaseUpdate(params).then(function(result) {
+            console.log("Successfully updated entry.");
+            resolve(result);
+        }, function(err) {
+            console.error("ERROR updateGuildDefaultGame: Failed to update database entry.\n" + err);
             reject(err);
         });
 
@@ -793,8 +832,9 @@ async function initGuild(guildID) {
         serverDropWeightsFN[guildID]   = 0;
         serverDropLocationsAL[guildID] = [];
         serverDropWeightsAL[guildID]   = 0;
-	serverAudioMute[guildID]     = false;
-        serverActiveVoice[guildID]   = false;
+        serverDefaultGame[guildID]     = "fortnite";
+	serverAudioMute[guildID]       = false;
+        serverActiveVoice[guildID]     = false;
 
         dbAWS.readGuild(guildID).then(result => {
 
@@ -806,7 +846,8 @@ async function initGuild(guildID) {
             var myDropLocationsFN = result.Item.dropLocations;
 	    var myDropLocationsAL = result.Item.dropLocationsAL;
 
-	    serverAudioMute[guildID] = result.Item.audioMute;
+            serverDefaultGame[guildID] = result.Item.defaultGame;            
+	    serverAudioMute[guildID]   = result.Item.audioMute;
 
             for (var i in myDropLocationsFN) {
                 serverDropWeightsFN[guildID] += myDropLocationsFN[i];
@@ -1026,6 +1067,8 @@ async function handleCommand(args, message) {
     var cmd = args[0];
     var messageContent = "";
 
+    let isFortniteCommand = true;
+
     if (DEBUG_COMMAND) console.log("handleCommand: user=" + userID + " - " +  args);
 
     args = args.splice(1);
@@ -1177,7 +1220,7 @@ async function handleCommand(args, message) {
                 var value = entry[1]; // VoiceConnection
 
                 value.on("error", e => {
-                    console.error("Dev command resetvoice error:\n" + e);
+                    console.log("ERROR dev reset voice connection: " + e);
                     return;
         	});	
                 
@@ -1296,8 +1339,9 @@ async function handleCommand(args, message) {
         messageContent += 'usage: db![option]\n\n';
         messageContent += 'db![option]            Description\n';
         messageContent += '----------------------------------\n';
-        messageContent += 'db!                   : Uses the default command for choosing a drop location (\"db!drop\")\n';
-        messageContent += 'db!drop / db!fortnite : Randomly choose a Fortnite location to drop based on server settings.\n';
+        messageContent += 'db!drop  /  db!       : Uses the default game location for randomly choosing a drop location. Change with "db!default"\n';
+        messageContent += 'db!default [game]     : Sets the default game for "db!drop" and "db!" commands. Legal options are "apex" and "fortnite".\n';
+        messageContent += 'db!fortnite           : Randomly choose a Fortnite location to drop based on server settings.\n';
         messageContent += 'db!apex               : Randomly choose an Apex Legends location to drop based on server settings.\n';
         messageContent += 'db!mute               : Mutes DropBot audio in voice channel.\n';
         messageContent += 'db!unmute             : Unmutes DropBot audio. Requires user to be in a voice channel.\n';
@@ -1306,12 +1350,19 @@ async function handleCommand(args, message) {
         messageContent += 'db!info               : Shows DropBot information and links/commands for additional help.\n';
         messageContent += 'db!stop               : Stop playing audio and remove DropBot from voice channel.\n';
 	messageContent += 'db!help               : Show this help message again.\n';
+        messageContent += 'db!donate             : Get link to donate to help support bot development and hosting fees.\n';
 	messageContent += 'db!vote               : Check and update vote status for bot within the last 24 hours without rate limit penalty.\n';
         messageContent += 'db!set  [id] [weight] : Change the percentage chance of choosing each Fortnite location. Use "db!set help" for more info.\n';
         messageContent += 'db!aset [id] [weight] : Change the percentage chance of choosing each Apex Legends location. Use "db!set help" for more info.\n';
         messageContent += '----------------------------------\n';
         messageContent += '```';
 	sendMessage(messageContent, message.channel);
+        break;
+
+    case 'd':
+    case 'donate':
+        message.reply("Donate to DropBot development from the link below!");
+        message.channel.send(donateURL);
         break;
         
     // Only intended to be used by private error handling
@@ -1328,7 +1379,6 @@ async function handleCommand(args, message) {
 	sendMessage(messageContent, message.channel);
         break;
 
-    //fixme - SPS. This should all be restructured...
     case 'v':
     case 'vote':
         if (VOTE_SYSTEM_ENABLED) {
@@ -1399,20 +1449,22 @@ async function handleCommand(args, message) {
 	    message.reply(messageContent);
     	    break;
     	} else {
-            messageContent = "\u200BMuting DropClient.";
-	    message.reply(messageContent);
             serverAudioMute[guildID] = true;
-    	}
-
-        updateGuildAudioMute(guildID);	
+    	}       
+        
+        updateGuildAudioMute(guildID).then(result => {
+            messageContent = "\u200BMuted DropBot. Will no longer speak in voice channels.";
+	    message.reply(messageContent);
+            console.log(`Successfully updated audioMute for ${message.guild.name}[guildID]`);
+        }).catch((e) => {
+            console.error("ERROR updateGuildAudioMute " + guildID + ":\n" + e);
+        });
     	break;
 
     case 'u':        
     case 'unmute':
 
     	if (serverAudioMute[guildID]) {
-            messageContent = "\u200BAllowing DropBot to speak again.";
-	    message.reply(messageContent);
             serverAudioMute[guildID] = false;
     	} else {
             messageContent = "\u200BDropBot is not muted.";
@@ -1420,8 +1472,48 @@ async function handleCommand(args, message) {
     	    break;
     	}
 
-        updateGuildAudioMute(guildID);
+        updateGuildAudioMute(guildID).then(result => {
+            messageContent = "\u200BAllowing DropBot to speak in voice channels again.";
+            message.reply(messageContent);
+            console.log(`Successfully updated audioMute for ${message.guild.name}[guildID]`);
+        }).catch((e) => {
+            console.error("ERROR updateGuildAudioMute " + guildID + ":\n" + e);
+        });
     	break;
+
+    case 'default':
+        if (args.length < 1) {
+            messageContent = "Please specify game to set as default. (e.g. \"apex\" or \"fortnite\"";
+	    sendMessage(messageContent, message.channel);
+            break;
+        }
+        let newDefaultGame = args[0].toLowerCase();
+        if (newDefaultGame == "fortnite" || newDefaultGame == "fn" ||
+            newDefaultGame == "fort"     || newDefaultGame == "fortnight" ||
+            newDefaultGame == "f") {
+            newDefaultGame = "fortnite";            
+        } else if (newDefaultGame == "apex" || newDefaultGame == "legends" ||
+                   newDefaultGame == "a"    || newDefaultGame == "") {
+            newDefaultGame = "apex";
+        } else {
+            messageContent = "Illegal game option. Please choose either \"apex\" or \"fortnite\"";
+            sendMessage(messageContent, message.channel);
+            return;
+        }
+
+        serverDefaultGame[guildID] = newDefaultGame;
+
+        updateGuildDefaultGame(guildID).then(result => {
+            let newDefaultGameString = newDefaultGame == "fortnite" ? "Fortnite" : "Apex Legends";
+            messageContent = "\u200BChanged default game to " + newDefaultGameString;
+            message.reply(messageContent);
+            console.log(`Successfully updated default game for ${message.guild.name}[guildID]`);
+        }).catch((e) => {
+            console.error("ERROR updateGuildDefaultGame " + guildID + ":\n" + e);
+        });
+
+        break;
+
 
     case 'fset':        
     case 'set':
@@ -1698,6 +1790,7 @@ async function handleCommand(args, message) {
 
             var myDropLocationsFN        = result.Item.dropLocations;
             var myDropLocationsAL        = result.Item.dropLocationsAL;
+            serverDefaultGame[guildID]   = result.Item.defaultGame;
 	    serverAudioMute[guildID]     = result.Item.audioMute;
 	    serverDropWeightsFN[guildID] = 0;
             serverDropWeightsAL[guildID] = 0;
@@ -1707,9 +1800,10 @@ async function handleCommand(args, message) {
 
             messageContent += "Discord Server Settings\n";
             messageContent += "---------------------------------\n";
-	    messageContent += "Server ID   : " + result.Item.id + "\n";
-	    messageContent += "Server Name : " + result.Item.name + "\n";
-	    messageContent += "Audio Muted : " + serverAudioMute[guildID] + "\n\n";
+	    messageContent += "Server ID    : " + result.Item.id             + "\n";
+	    messageContent += "Server Name  : " + result.Item.name           + "\n";
+            messageContent += "Default Game : " + serverDefaultGame[guildID] + "\n";
+	    messageContent += "Audio Muted  : " + serverAudioMute[guildID]   + "\n\n";
 	    messageContent += "-------------- Fortnite ---------------\n";
             messageContent += "  ID   Location        Weight  % Chance\n";
             messageContent += "  -------------------------------------\n";
@@ -1753,7 +1847,7 @@ async function handleCommand(args, message) {
             messageContent += "  -------------------------------------\n";            
 
             if (serverDropWeightsAL[guildID] == null || serverDropWeightsAL[guildID] == 0) {
-                serverDropWeightsAL[guildID] = 0; //fixme - SPS. needed?
+                serverDropWeightsAL[guildID] = 0; 
                 for (var i in myDropLocationsAL) {
                     serverDropWeightsAL[guildID] += myDropLocationsAL[i];
                 }
@@ -1802,6 +1896,7 @@ async function handleCommand(args, message) {
 
         dbAWS.readGuild(guildID).then(result => {
 
+            serverDefaultGame[guildID] = "fortnite";
     	    serverAudioMute[guildID]   = false;
 
 	    // Start new message
@@ -1809,9 +1904,10 @@ async function handleCommand(args, message) {
 
             messageContent += "Discord Server Settings\n";
             messageContent += "---------------------------------\n";
-    	    messageContent += "Server ID   : " + result.Item.id + "\n";
-    	    messageContent += "Server Name : " + result.Item.name + "\n";
-    	    messageContent += "Audio Muted : " + serverAudioMute[guildID] + "\n";
+    	    messageContent += "Server ID    : " + result.Item.id             + "\n";
+    	    messageContent += "Server Nam e : " + result.Item.name           + "\n";
+            messageContent += "Default Game : " + serverDefaultGame[guildID] + "\n";
+    	    messageContent += "Audio Muted  : " + serverAudioMute[guildID]   + "\n";
     	    messageContent += "------------- Fortnite ---------------\n";
             messageContent += "  ID   Location       Weight  % Chance\n";
             messageContent += "  ------------------------------------\n";
@@ -1927,39 +2023,62 @@ async function handleCommand(args, message) {
     // Default command. Can be run with "db!"
     case '':
     case 'd':
-    case 'fdrop':
-    case 'fortnite':
     case 'drop':
-    case 'wwdb': // Where we droppin', boys?
-
+        if (serverDefaultGame[guildID].toLowerCase() == "apex") isFortniteCommand = false;
+        else                                                    isFortniteCommand = true;
 
         var guildMember = message.member;
-        if (guildMember === undefined) {
-            console.log("*** SPS GOT UNDEFINED: " + message.author.id);
+        if (guildMember === undefined || guildMember == null || !(guildMember)) {
+            console.log("Retrieving guild member with fetchMember: " + message.author.id);
             guildMember = message.guild.fetchMember(message.author).then(member => {
                 guildMember = member;
-                playDropLocation(true, message, guildMember);
-            });
+                playDropLocation(isFortniteCommand, message, guildMember);
+            }).catch((e) => {
+                console.error("ERROR retrieving guild member with fetchMember:\n" + e);
+            });            
         } else {
-            playDropLocation(true, message, guildMember);
+            playDropLocation(isFortniteCommand, message, guildMember);
         }                
-                
+	
         break;
+        
+    case 'fdrop':
+    case 'fort':
+    case 'fortnight':
+    case 'fortnite':
+        isFortniteCommand = true;
 
+        var guildMember = message.member;
+        if (guildMember === undefined || guildMember == null || !(guildMember)) {
+            console.log("Retrieving guild member with fetchMember: " + message.author.id);            
+            guildMember = message.guild.fetchMember(message.author).then(member => {
+                guildMember = member;
+                playDropLocation(isFortniteCommand, message, guildMember);
+            }).catch((e) => {
+                console.error("ERROR retrieving guild member with fetchMember:\n" + e);
+            });            
+        } else {
+            playDropLocation(isFortniteCommand, message, guildMember);
+        }                
+	
+        break;
+        
     case 'a':
     case 'adrop':
     case 'apex':
-    case 'adrop':
-
+        isFortniteCommand = false;
+        
         var guildMember = message.member;
-        if (guildMember === undefined) {
-            console.log("*** SPS GOT UNDEFINED: " + message.author.id);
+        if (guildMember === undefined || guildMember == null || !(guildMember)) {
+            console.log("Retrieving guild member with fetchMember: " + message.author.id);            
             guildMember = message.guild.fetchMember(message.author).then(member => {
                 guildMember = member;
-                playDropLocation(false, message, guildMember);
+                playDropLocation(isFortniteCommand, message, guildMember);
+            }).catch((e) => {
+                console.error("ERROR retrieving guild member with fetchMember:\n" + e);
             });
         } else {
-            playDropLocation(false, message, guildMember);
+            playDropLocation(isFortniteCommand, message, guildMember);
         }                
 	
         break;
@@ -1976,7 +2095,7 @@ async function handleCommand(args, message) {
             dbl.hasVoted(userID).then(voted => {
 
                 if (! (voted) ) {
-                    console.log("User has NOT voted: " + userID);
+                    console.log("SPS Has not VOTED: " + userID);
                     message.reply("Has been over 24 hours since last vote...\nCan vote again at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n");
                 }
 
@@ -2010,7 +2129,7 @@ async function sendMessage(content, channel, options) {
 
 // Create an event listener for messages
 client.on('message', message => {
-
+    
     var userID   = message.author.id;
     var user     = message.author.username;
     var userDisc = message.author.discriminator;
@@ -2099,6 +2218,14 @@ client.on('message', message => {
 
     var guildID   = message.guild.id;
     var guildName = message.guild.name;
+
+    // Special for Official DropBot Support server
+    // Do not want to take DropBot off each channel for visibility.
+    //   Have the moderator bot delegate instructions to move to supported channels.
+    if (message.guild.id == DROPBOT_SERVER_ID) {
+        if (message.channel.id != DROPBOT_TEST_CHANNEL_ID1 &&
+            message.channel.id != DROPBOT_TEST_CHANNEL_ID2) return;
+    }
     
     // Main debug code block for application.
     // Logged on every successful message being parsed past the intial sanitation and DM feedback.
@@ -2141,12 +2268,13 @@ client.on('message', message => {
                 serverUpdateNotice[guildID] = false;
                 updateGuildUpdateNotice(guildID).then(result => {                
                     setTimeout(function() {
-		        message.channel.send("<@!" + userID + "> - DropBot has been updated to version 7.0! \n" +
-					     "Now supporting Apex Legends.\n\n" +
+		        message.channel.send("<@!" + userID + "> - DropBot has been updated to version 8.5! \n" +
+					     "Added ability to change default game for \"db!drop\" and \"db!\" commands.\n" +
+                                             "If your server wants to play Apex Legends, try using the command \"db!default apex\" to save yourself some time.\n" +
 					     "Use db!help for more info on commands.\n" +
 					     "Post on DropBot support server linked in db!help if you have any issues."
 					    );
-	            }, 5000);
+	            }, 10000);
                 });
             }
             
