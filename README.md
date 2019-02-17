@@ -32,8 +32,9 @@ Add DropBot to a Discord server and see help by sending a "db!help" message in a
 Optional features:
 db![option]    Description
 -----------------------
-db!                   : Uses the default command for choosing a drop location ("db!drop")
-db!drop / db!fortnite : Randomly choose a Fortnite location to drop based on server settings.
+db!drop  /  db!       : Uses the default game location for randomly choosing a drop location. Change with "db!default"
+db!default [game]     : Sets the default game for "db!drop" and "db!" commands. Legal options are "apex" and "fortnite".
+db!fortnite           : Randomly choose a Fortnite location to drop based on server settings.
 db!apex               : Randomly choose an Apex Legends location to drop based on server settings.
 db!mute               : Mutes DropBot audio in voice channel.
 db!unmute             : Unmutes DropBot audio. Requires user to be in a voice channel.
