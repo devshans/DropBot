@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 8.6.0
+    @version    : 8.7.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -67,54 +67,7 @@ fs.readFile(devFilename, 'utf8', function(err, data) {
     DEVSHANS_ID = devJson.uid;
 });
 
-// Fortnite specific stuff
-var dropLocationNamesFN = [
-    "Dusty Divot"
-    ,"Fatal Fields"
-    ,"Frosty Flights"
-    ,"Tomato Temple"
-    ,"Happy Hamlet"
-    ,"Haunted Hills"
-    ,"Junk Junction"
-    ,"Lazy Links"
-    ,"Lonely Lodge"
-    ,"Loot Lake"
-    ,"Lucky Landing"
-    ,"Paradise Palms"
-    ,"Pleasant Park"
-    ,"Polar Peak"
-    ,"Retail Row"
-    ,"Salty Springs"
-    ,"Shifty Shafts"
-    ,"Snobby Shores"
-    ,"The Block"
-    ,"Tilted Towers"
-    ,"Wailing Woods"
-];
-
-// Apex specific stuff
-var dropLocationNamesAL = [
-    "Airbase"
-    ,"Artillery"
-    ,"Bridges"
-    ,"Bunker"
-    ,"Cascades"
-    ,"Hydro Dam"
-    ,"Market"
-    ,"Relay"
-    ,"Repulsor"
-    ,"Runoff"
-    ,"Skull Town"
-    ,"Slum Lakes"
-    ,"Swamps"
-    ,"The Pit"
-    ,"Thunderdome"
-    ,"Water Treatment"
-    ,"Wetlands"
-];
-
 // Database status in memory
-var serverInitialized   = {};
 var dropUserInitialized = {};
 
 var usersTotalCount     = 0;
@@ -124,15 +77,7 @@ var dropUserBlocked     = {};
 var dropUserIsVoter     = {};
 var dropUserWarned      = {};
 
-var serverTotalCount      = 0;
-var serverDropLocationsFN = {};
-var serverDropWeightsFN   = {};
-var serverDropLocationsAL = {};
-var serverDropWeightsAL   = {};
-var serverDefaultGame     = {}; 
-var serverAudioMute       = {};
-var serverUpdateNotice    = {};
-var serverActiveVoice     = {}; // Servers that DropBot is actively speaking on.
+var dropGuilds = [];
 
 var dropIntros = [
      'intro.wav'
@@ -140,13 +85,17 @@ var dropIntros = [
     ,'intro3.wav'
 ];
 
-const client = new Discord.Client();
+const client  = new Discord.Client();
+const shardID = client.shard === null ? -1 : client.shard.id;
 
 const { prefix, token, donateURL, webhookAuth } = require('./config.json');
 
 var filenameArray = __filename.split("/");
 
 var developerMode = filenameArray[filenameArray.length-1] == "DropBot-dev.js" ? true : false;
+
+const DBGuild = require('./DBGuild.js');
+var constants = require('./constants.js');
 
 // DynamoDB Table Names
 const dbTableLocationsFN = "DropLocations";
@@ -182,11 +131,11 @@ var dbl;
 // Set up DBL even in developerMode to use the real DropBot auth.token to check stats.
 //   Do not set a client, webhooks, or update serverCount.
 // Likewise, only create 1 instance for shard ID 0 so that we aren't running multiple servers, etc.
-if (developerMode || client.shard.id != 0) {
+if (developerMode || shardID != 0) {
 
     dbl = new DBL(auth.dblToken);
 
-} else { // client.shard.id == 0
+} else { // shardID == 0
 
     // Express server for webhooks
     const express = require('express');
@@ -224,9 +173,7 @@ client.on('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 
     // Only need to set client activity once
-    if (client.shard.id == 0) {
-        client.user.setActivity(`\"db!help\"`, { type: 'LISTENING' });
-    }
+    client.user.setActivity(`\"db!help\"`, { type: 'LISTENING' });
     
     // Send client.guilds.size to DBL at startup and then every 30 minutes.
     if (! (developerMode) && client.user.id == DROPBOT_ID) {
@@ -235,7 +182,7 @@ client.on('ready', () => {
             setInterval(() => {
                 dblPostStats();
             }, 1800000);
-        }, (1000*client.shard.id));
+        }, (1000*shardID));
     }
 
     console.log("DropBot listening on " + client.guilds.size + " servers for " + usersTotalCount + " total users");
@@ -260,98 +207,21 @@ client.on('disconnect', event => {
     client.login(auth.token);
 });
 
+// This event triggers when the bot joins a guild.
 client.on("guildCreate", guild => {
-  // This event triggers when the bot joins a guild.
   console.log(`New guild joined: ${guild.name} (id: ${guild.id}). This guild has ${guild.memberCount} members!`);
-  //client.user.setActivity(`Serving ${client.guilds.size} servers`);
 });
 
+// This event triggers when the bot is removed from a guild.
 client.on("guildDelete", guild => {
-  // this event triggers when the bot is removed from a guild.
   console.log(`I have been removed from: ${guild.name} (id: ${guild.id})`);
-  //client.user.setActivity(`Serving ${client.guilds.size} servers`);
 });
-
-// Create an event listener for new guild members
-client.on('guildMemberAdd', member => {
-  // Send the message to a designated channel on a server:
-  const channel = member.guild.channels.find(ch => ch.name === 'member-log');
-  // Do nothing if the channel wasn't found on this server
-  if (!channel) return;
-  // Send the message, mentioning the member
-  channel.send(`Welcome to the server, ${member}`);
-});
-
 
 // Log our bot in using the token from https://discordapp.com/developers/applications/me
 var loginDelay = developerMode ? 10 : 100;
 setTimeout(function() {
     client.login(auth.token);
 }, loginDelay);
-
-
-async function initGuildDatabase(guildName, guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        var guildPromise = dbAWS.getDropBotGuilds(guildID);	
-	
-        serverUpdateNotice[guildID] = false;
-
-        guildPromise.then(function(result) {
-
-            var dbStringFN = defaultWeightsFN.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});
-	    var dbStringAL = defaultWeightsAL.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});         
-
-	    var epochTime = new Date().getTime();
-	    
-            if (result.Item == null) {
-                // Create entry in database.
-                console.log("Creating NEW server database entry: " + guildName + "[" + guildID + "]");
-                var params = {
-                    TableName: dbTableGuilds,
-                    Item:{
-                        "name":guildName,			
-                        "id":guildID,
-                        "numAccesses":1,
-                        "dropLocations":dbStringFN,
-                        "dropLocationsAL":dbStringAL,			
-			"audioMute":false,
-                        "updateNotice":true,
-			"defaultGame":"fortnite",
-			"lastVoteTime":epochTime			
-                    }
-                };
-
-                dbAWS.databasePut(params).then(function(result) {
-                    if (DEBUG_DATABASE) console.log("Successfully created NEW server database entry.");
-                    client.guilds.size++;
-                    console.log("New total servers: " + client.guilds.size);
-                    resolve(result);
-                }, function(err) {
-                    console.error("ERROR: Failed to create database entry:\n" + err);
-                    reject(err);
-                });
-
-            } else {
-                if (DEBUG_DATABASE) console.log("Server already exists in database..");
-
-                if (! (result.Item.updateNotice)) {
-                    serverUpdateNotice[guildID] = true;
-                    console.log("*** Sending update message to server: " + guildID);
-                }
-                
-                resolve(result);
-            }
-
-        }, function(err) {
-            console.log(err);
-            reject(err);
-        });
-
-    });
-
-}
 
 async function initUser(userName, userID, userDisc, accessTime) {
 
@@ -485,203 +355,6 @@ function resetAllUserBanScan(err, data) {
     }
 }
 
-async function updateGuildAll(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        if (DEBUG_DATABASE) console.log("updateGuildAll for server: ", guildID);
-
-        var dbStringFN = serverDropLocationsFN[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
-        var dbStringAL = serverDropLocationsAL[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});	
-
-        var params = {
-            TableName: dbTableGuilds,
-            Key:{
-                "id":guildID
-            },
-            UpdateExpression: "set dropLocations = :dfn, dropLocationsAL = :dal, defaultGame = :dg, audioMute = :bool, numAccesses = numAccesses + :val",
-            ExpressionAttributeValues:{
-                ":dfn":dbStringFN,
-		":dal":dbStringAL,
-                ":dg":serverDefaultGame[guildID],
-                ":bool":serverAudioMute[guildID],
-                ":val":1
-            },
-            ReturnValues:"UPDATED_NEW"
-        };
-
-	dbAWS.databaseUpdate(params).then(function(result) {	
-            if (DEBUG_DATABASE) console.log("Successfully updated entry.");
-            resolve(result);
-        }, function(err) {
-            console.error("ERROR updateGuildAll: Failed to update database entry.\n" + err);
-            reject(err);
-        });
-
-    });
-
-}
-
-
-async function updateGuildDropsFN(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        if (DEBUG_DATABASE) console.log("updateGuildDropsFN for server: ", guildID);
-
-        var dbStringFN = serverDropLocationsFN[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
-
-        var params = {
-            TableName: dbTableGuilds,
-            Key:{
-                "id":guildID
-            },
-            UpdateExpression: "set dropLocations = :d, numAccesses = numAccesses + :val",
-            ExpressionAttributeValues:{
-                ":d":dbStringFN,
-                ":val":1
-            },
-            ReturnValues:"UPDATED_NEW"
-        };
-
-	dbAWS.databaseUpdate(params).then(function(result) {
-            if (DEBUG_DATABASE) console.log("Successfully updated entry.");
-            resolve(result);
-        }, function(err) {
-            console.error("ERROR updateGuildDropsFN: Failed to update database entry.\n" + err);
-            reject(err);
-        });
-
-    });
-
-}
-
-async function updateGuildDropsAL(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        if (DEBUG_DATABASE) console.log("updateGuildDropsAL for server: ", guildID);
-
-        var dbStringAL = serverDropLocationsAL[guildID].reduce((map, obj) => (map[obj.id] = parseInt(obj.weight), map), {});
-
-        var params = {
-            TableName: dbTableGuilds,
-            Key:{
-                "id":guildID
-            },
-            UpdateExpression: "set dropLocationsAL = :d, numAccesses = numAccesses + :val",
-            ExpressionAttributeValues:{
-                ":d":dbStringAL,
-                ":val":1
-            },
-            ReturnValues:"UPDATED_NEW"
-        };
-
-	dbAWS.databaseUpdate(params).then(function(result) {
-            if (DEBUG_DATABASE) console.log("Successfully updated entry.");
-            resolve(result);
-        }, function(err) {
-            console.error("ERROR updateGuildDropsAL: Failed to update database entry.\n" + err);
-            reject(err);
-        });
-
-    });
-
-}
-
-async function updateGuildDefaultGame(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        if (DEBUG_DATABASE) console.log("updateGuildDefaultGame for server: ", guildID, " to ", serverDefaultGame[guildID]);
-
-        var params = {
-            TableName: dbTableGuilds,
-            Key:{
-                "id":guildID
-            },
-            UpdateExpression: "set defaultGame = :dg, numAccesses = numAccesses + :val",
-            ExpressionAttributeValues:{
-                ":dg":serverDefaultGame[guildID],
-                ":val":1
-            },
-            ReturnValues:"UPDATED_NEW"
-        };
-
-	dbAWS.databaseUpdate(params).then(function(result) {
-            console.log("Successfully updated entry.");
-            resolve(result);
-        }, function(err) {
-            console.error("ERROR updateGuildDefaultGame: Failed to update database entry.\n" + err);
-            reject(err);
-        });
-
-    });
-
-}
-
-async function updateGuildAudioMute(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        if (DEBUG_DATABASE) console.log("updateGuildAudioMute for server: ", guildID, " to ", serverAudioMute[guildID]);
-
-        var params = {
-            TableName: dbTableGuilds,
-            Key:{
-                "id":guildID
-            },
-            UpdateExpression: "set audioMute = :bool, numAccesses = numAccesses + :val",
-            ExpressionAttributeValues:{
-                ":bool":serverAudioMute[guildID],
-                ":val":1
-            },
-            ReturnValues:"UPDATED_NEW"
-        };
-
-	dbAWS.databaseUpdate(params).then(function(result) {
-            console.log("Successfully updated entry.");
-            resolve(result);
-        }, function(err) {
-            console.error("ERROR updateGuildAudioMute: Failed to update database entry.\n" + err);
-            reject(err);
-        });
-
-    });
-
-}
-
-async function updateGuildUpdateNotice(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        if (DEBUG_DATABASE) console.log("updateGuildUpdateNotice for server: ", guildID, " to \"true\"");
-
-        var params = {
-            TableName: dbTableGuilds,
-            Key:{
-                "id":guildID
-            },
-            UpdateExpression: "set updateNotice = :bool, numAccesses = numAccesses + :val",
-            ExpressionAttributeValues:{
-                ":bool":true,
-                ":val":1
-            },
-            ReturnValues:"UPDATED_NEW"
-        };
-
-	dbAWS.databaseUpdate(params).then(function(result) {
-            console.log("Successfully updated entry.");
-            resolve(result);
-        }, function(err) {
-            console.error("ERROR updateGuildUpdateNotice: Failed to update database entry.\n" + err);
-            reject(err);
-        });
-
-    });
-
-}
-
 async function initDefaultWeightsFN(guildID) {
 
     return new Promise(function(resolve, reject) {
@@ -690,7 +363,7 @@ async function initDefaultWeightsFN(guildID) {
 
         console.log("Getting default weights for client.");
 
-        for (var id = 0; id < dropLocationNamesFN.length; id++) {
+        for (var id = 0; id < constants.dropLocationNamesFN.length; id++) {
             promises.push(dbAWS.getDropLocationFN(id));
         }
 
@@ -725,7 +398,7 @@ async function initDefaultWeightsAL(guildID) {
 
         console.log("Getting default weights for client.");
 
-        for (var id = 0; id < dropLocationNamesAL.length; id++) {
+        for (var id = 0; id < constants.dropLocationNamesAL.length; id++) {
             promises.push(dbAWS.getDropLocationAL(id));
         }
 
@@ -752,98 +425,47 @@ async function initDefaultWeightsAL(guildID) {
 
 }
 
-async function initGuild(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        var promises = [];
-
-        if (DEBUG_DATABASE) console.log("Getting dropLocation weights for server: " + guildID);
-
-        serverDropLocationsFN[guildID] = [];
-        serverDropWeightsFN[guildID]   = 0;
-        serverDropLocationsAL[guildID] = [];
-        serverDropWeightsAL[guildID]   = 0;
-        serverDefaultGame[guildID]     = "fortnite";
-	serverAudioMute[guildID]       = false;
-        serverActiveVoice[guildID]     = false;
-
-        dbAWS.readGuild(guildID).then(result => {
-
-            if (result.Item === undefined || result.Item == null) {
-                console.error("ERROR initGuild " + guildID + ":\nresult.Item is null.");
-                reject ("result.Item is null");
-            }
-	    
-            var myDropLocationsFN = result.Item.dropLocations;
-	    var myDropLocationsAL = result.Item.dropLocationsAL;
-
-            serverDefaultGame[guildID] = result.Item.defaultGame;            
-	    serverAudioMute[guildID]   = result.Item.audioMute;
-
-            for (var i in myDropLocationsFN) {
-                serverDropWeightsFN[guildID] += myDropLocationsFN[i];
-                serverDropLocationsFN[guildID].push({
-                    id: i,
-                    weight: myDropLocationsFN[i]
-                });
-            }
-
-	    for (var i in myDropLocationsAL) {
-                serverDropWeightsAL[guildID] += myDropLocationsAL[i];
-                serverDropLocationsAL[guildID].push({
-                    id: i,
-                    weight: myDropLocationsAL[i]
-                });
-            }
-	    
-            resolve(serverDropLocationsFN[guildID]);
-	    
-        }).catch((e) => {
-            console.error("ERROR initGuild " + guildID + ":\n" + e);
-            reject(e);
-        });
-
-    });
-
-}
-
-
 function dblPostStats() {
 
     let guildsSize = client.guilds.size;
 
-    console.log("Shards: " + client.shard.id + " - " + client.shard.count);
+    console.log("Shards: " + shardID + " - " + client.shard.count);
 
-    dbl.postStats(client.guilds.size, client.shard.id, client.shard.count).then(() => {
+    dbl.postStats(client.guilds.size, shardID, client.shard.count).then(() => {
         console.log('*** DBL: SUCCESS sending guildsSize to Discord Bot List - ' + guildsSize);
     }).catch(err => {
         console.log("*** DBL WARNING: Could not access dbl.postStats database");
     });
-    
-    // client.shard.fetchClientValues('guilds.size')
-    //     .then(results => {
-    //         console.log;
-    //         console.log(`${results.reduce((prev, guildCount) => prev + guildCount, 0)} total guilds`);
 
-    //         console.log('*** DBL: Sending guildsSize to Discord Bot List - ' + guildsSize);
+}
 
-    //         dbl.postStats(client.guilds.size, client.shards.Id, client.shards.total).then(() => {
-    //         //dbl.postStats(guildsSize).then(() => {
-    //             console.log('*** DBL: SUCCESS sending guildsSize to Discord Bot List - ' + guildsSize);
-    //         }).catch(err => {
-    //             console.log("*** DBL WARNING: Could not access dbl.postStats database");
-    //         });
+async function getGuildMember(message) {
 
-    //     })
-    //     .catch(console.error);   
+    return new Promise(function(resolve, reject) {
+        
+        var guildMember = message.member;
+        if (guildMember === undefined || guildMember == null || !(guildMember)) {
+            console.log("Retrieving guild member with fetchMember: " + message.author.id);
+            message.guild.fetchMember(message.author).then(member => {
+                guildMember = member;
+                resolve(guildMember);                
+            }).catch((e) => {
+                console.error("ERROR retrieving guild member with fetchMember:\n" + e);
+                reject(e);
+            });            
+        } else {
+            //playDropLocation(isFortniteCommand, message, guildMember);
+            resolve(guildMember);
+        }
 
+    });
+        
 }
 
 async function playDropLocation(isFortnite, message, guildMember) {
 
     let guildID = message.guild.id;
-    const dropLocationID = isFortnite ? rwc(serverDropLocationsFN[guildID]) : rwc(serverDropLocationsAL[guildID]);
+    const dropLocationID = isFortnite ? rwc(dropGuilds[guildID].dropLocationsFN) : rwc(dropGuilds[guildID].dropLocationsAL);
 
     if (dropLocationID == null) {
         console.error("ERROR: Could not select a drop location.");
@@ -852,7 +474,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
         return;
     }
 
-    const dropLocation   = isFortnite ? dropLocationNamesFN[dropLocationID] : dropLocationNamesAL[dropLocationID];
+    const dropLocation   = isFortnite ? constants.dropLocationNamesFN[dropLocationID] : constants.dropLocationNamesAL[dropLocationID];
     const gameName       = isFortnite ? "Fortnite" : "Apex Legends";
     
     let dropChance;
@@ -864,13 +486,13 @@ async function playDropLocation(isFortnite, message, guildMember) {
     }   
 
     if (DEBUG_COMMAND) {
-        if (isFortnite) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNamesFN[dropLocationID]);
-        else            console.log("Dropping at dropLocationId: " + dropLocationID + " - " + dropLocationNamesAL[dropLocationID]);
+        if (isFortnite) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + constants.dropLocationNamesFN[dropLocationID]);
+        else            console.log("Dropping at dropLocationId: " + dropLocationID + " - " + constants.dropLocationNamesAL[dropLocationID]);
     }
 
     if (isFortnite) {
-        if (serverDropLocationsFN[guildID][dropLocationID]['weight']) {
-            dropChance = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;
+        if (dropGuilds[guildID].dropLocationsFN[dropLocationID]['weight']) {
+            dropChance = dropGuilds[guildID].dropLocationsFN[dropLocationID]['weight'] / dropGuilds[guildID].dropWeightsFN * 100;
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
             console.error("ERROR: dropLocationID " + dropLocationID + " is undefined");
@@ -879,8 +501,8 @@ async function playDropLocation(isFortnite, message, guildMember) {
             return;
         }
     } else {
-        if (serverDropLocationsAL[guildID][dropLocationID]['weight']) {
-            dropChance = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;
+        if (dropGuilds[guildID].dropLocationsAL[dropLocationID]['weight']) {
+            dropChance = dropGuilds[guildID].dropLocationsAL[dropLocationID]['weight'] / dropGuilds[guildID].dropWeightsAL * 100;
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
             console.error("ERROR: dropLocationID " + dropLocationID + " is undefined");
@@ -897,7 +519,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
     messageContent = "";
     
-    if (serverAudioMute[guildID]) {           
+    if (dropGuilds[guildID].audioMute) {           
 
         if (guildMember.voiceChannel) {
     	    dropLocationMessage += "\n```User is in a voice channel while DropBot is muted. Use \"db!unmute\" to play audio.```";
@@ -1395,18 +1017,18 @@ async function handleCommand(args, message) {
     case 'm':
     case 'mute':
 
-    	if (serverAudioMute[guildID]) {
+    	if (dropGuilds[guildID].audioMute) {
             messageContent = "\u200BDropBot is already muted.";
 	    message.reply(messageContent);
     	    break;
     	} else {
-            serverAudioMute[guildID] = true;
+            dropGuilds[guildID].audioMute = true;
     	}       
         
-        updateGuildAudioMute(guildID).then(result => {
+        dbAWS.updateGuildAudioMute(dropGuilds[guildID]).then(dropBotGuild => {
             messageContent = "\u200BMuted DropBot. Will no longer speak in voice channels.";
 	    message.reply(messageContent);
-            console.log(`Successfully updated audioMute for ${message.guild.name}[guildID]`);
+            console.log(`Successfully updated audioMute for ${message.guild.name}[${guildID}]`);
         }).catch((e) => {
             console.error("ERROR updateGuildAudioMute " + guildID + ":\n" + e);
         });
@@ -1415,18 +1037,18 @@ async function handleCommand(args, message) {
     case 'u':        
     case 'unmute':
 
-    	if (serverAudioMute[guildID]) {
-            serverAudioMute[guildID] = false;
+    	if (dropGuilds[guildID].audioMute) {
+            dropGuilds[guildID].audioMute = false;
     	} else {
             messageContent = "\u200BDropBot is not muted.";
 	    message.reply(messageContent);
     	    break;
     	}
 
-        updateGuildAudioMute(guildID).then(result => {
+        dbAWS.updateGuildAudioMute(dropGuilds[guildID]).then(dropBotGuild => {
             messageContent = "\u200BAllowing DropBot to speak in voice channels again.";
             message.reply(messageContent);
-            console.log(`Successfully updated audioMute for ${message.guild.name}[guildID]`);
+            console.log(`Successfully updated audioMute for ${message.guild.name}[${guildID}]`);
         }).catch((e) => {
             console.error("ERROR updateGuildAudioMute " + guildID + ":\n" + e);
         });
@@ -1452,9 +1074,9 @@ async function handleCommand(args, message) {
             return;
         }
 
-        serverDefaultGame[guildID] = newDefaultGame;
+        dropGuilds[guildID].defaultGame = newDefaultGame;
 
-        updateGuildDefaultGame(guildID).then(result => {
+        dbAWS.updateGuildDefaultGame(dropGuilds[guildID]).then(dropBotGuild => {
             let newDefaultGameString = newDefaultGame == "fortnite" ? "Fortnite" : "Apex Legends";
             messageContent = "\u200BChanged default game to " + newDefaultGameString;
             message.reply(messageContent);
@@ -1473,7 +1095,7 @@ async function handleCommand(args, message) {
         var setId               = Number(args[0]);
         var setWeight           = Number(args[1]);
         var previousWeight      = -1;
-        var previousTotalWeight = serverDropWeightsFN[guildID];
+        var previousTotalWeight = dropGuilds[guildID].dropWeightsFN;
         var nextTotalWeight     = 0;
 
         messageContent = '';
@@ -1506,79 +1128,44 @@ async function handleCommand(args, message) {
             validChange = false;
         }
 
-        if (validChange && serverDropLocationsFN[guildID][setId]['weight'] == setWeight) {
-            messageContent += "ERROR: Weight for " + dropLocationNamesFN[setId] + " is already " + setWeight;
+        if (validChange && dropGuilds[guildID].dropLocationsFN[setId]['weight'] == setWeight) {
+            messageContent += "ERROR: Weight for " + constants.dropLocationNamesFN[setId] + " is already " + setWeight;
             validChange = false;
         }
 
         if (validChange) {
-            messageContent += "Setting weight for " + dropLocationNamesFN[setId] + " to " + setWeight;
-            serverDropLocationsFN[guildID][setId]['weight'] = setWeight;
+            messageContent += "Setting weight for " + constants.dropLocationNamesFN[setId] + " to " + setWeight;
+            dropGuilds[guildID].dropLocationsFN[setId]['weight'] = setWeight;
 
-            previousWeight = Number(serverDropLocationsFN[guildID][setId]['weight']);
+            previousWeight = Number(dropGuilds[guildID].dropLocationsFN[setId]['weight']);
             
             nextTotalWeight = 0;
-            for (var i=0; i < dropLocationNamesFN.length; i++) {
-                nextTotalWeight += Number(serverDropLocationsFN[guildID][i]['weight']);
+            for (var i=0; i < constants.dropLocationNamesFN.length; i++) {
+                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsFN[i]['weight']);
             }
             
             if (nextTotalWeight < 1) {
                 messageContent += "ERROR: All weights must add up to at least 1";
-                serverDropLocationsFN[guildID][setId]['weight'] = previousWeight;
+                dropGuilds[guildID].dropLocationsFN[setId]['weight'] = previousWeight;
                 validChange = false;
             }
             
         } else {
             
-            for (var i=0; i < dropLocationNamesFN.length; i++) {        
-                nextTotalWeight += Number(serverDropLocationsFN[guildID][i]['weight']);
+            for (var i=0; i < constants.dropLocationNamesFN.length; i++) {        
+                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsFN[i]['weight']);
             }
 
         }
 
-        serverDropWeightsFN[guildID] = nextTotalWeight;
+        dropGuilds[guildID].dropWeightsFN = nextTotalWeight;
 
 	sendMessage(messageContent, message.channel);
 
-	// Start new message
-        messageContent = "```";
-        
-    	messageContent += "-------------- Fortnite ---------------\n";
-        messageContent += "  ID   Location        Weight  % Chance\n";
-        messageContent += "  -------------------------------------\n";
-
-        for (var i=0; i < dropLocationNamesFN.length; i++) {
-            var dropLocationID     = i;;
-            var dropLocationWeight = Number(serverDropLocationsFN[guildID][i]['weight']);
-            var dropLocationName   = dropLocationNamesFN[dropLocationID];
-            var dropChance         = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;
-            if (dropChance != 100) dropChance = dropChance.toPrecision(2);
-
-            messageContent += "  ";
-            if (dropLocationID < 10) messageContent += " " + dropLocationID;
-            else                     messageContent += dropLocationID;
-
-            messageContent += " - " + dropLocationName;
-            for (var j = dropLocationName.length; j < 15; j++) {
-                messageContent += " ";
-            }
-
-            messageContent += " - " + dropLocationWeight + "   ";
-            if (dropLocationWeight != 10) messageContent += " ";
-
-            messageContent += " - " + dropChance + "%\n";
-            
-        }        
-        
-        messageContent += "  ------------------------------\n";
-    	messageContent += "Total weight: " + serverDropWeightsFN[guildID] + "\n";        
-
-        messageContent += "```";	
-
         if (validChange) {
-            updateGuildDropsFN(guildID).then(result => {
+            dbAWS.updateGuildDropsFN(dropGuilds[guildID]).then(dropBotGuild => {
 
-		sendMessage(messageContent, message.channel, {delay: 200});
+                sendMessage(dropGuilds[guildID].toString(), message.channel, {delay: 200});
 
             }).catch((e) => {
                 console.error("ERROR updateGuildDropsFN: " + e);
@@ -1595,7 +1182,7 @@ async function handleCommand(args, message) {
         var setId               = Number(args[0]);
         var setWeight           = Number(args[1]);
         var previousWeight      = -1;
-        var previousTotalWeight = serverDropWeightsAL[guildID];
+        var previousTotalWeight = dropGuilds[guildID].dropWeightsAL;
         var nextTotalWeight     = 0;
 
         messageContent = '';
@@ -1628,79 +1215,44 @@ async function handleCommand(args, message) {
             validChange = false;
         }
 
-        if (validChange && serverDropLocationsAL[guildID][setId]['weight'] == setWeight) {
-            messageContent += "ERROR: Weight for " + dropLocationNamesAL[setId] + " is already " + setWeight;
+        if (validChange && dropGuilds[guildID].dropLocationsAL[setId]['weight'] == setWeight) {
+            messageContent += "ERROR: Weight for " + constants.dropLocationNamesAL[setId] + " is already " + setWeight;
             validChange = false;
         }        
 
         if (validChange) {
-            messageContent += "Setting weight for " + dropLocationNamesAL[setId] + " to " + setWeight;
-            serverDropLocationsAL[guildID][setId]['weight'] = setWeight;
+            messageContent += "Setting weight for " + constants.dropLocationNamesAL[setId] + " to " + setWeight;
+            dropGuilds[guildID].dropLocationsAL[setId]['weight'] = setWeight;
 
-            previousWeight = Number(serverDropLocationsAL[guildID][setId]['weight']);
+            previousWeight = Number(dropGuilds[guildID].dropLocationsAL[setId]['weight']);
             
             nextTotalWeight = 0;
-            for (var i=0; i < dropLocationNamesAL.length; i++) {
-                nextTotalWeight += Number(serverDropLocationsAL[guildID][i]['weight']);
+            for (var i=0; i < constants.dropLocationNamesAL.length; i++) {
+                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsAL[i]['weight']);
             }
             
             if (nextTotalWeight < 1) {
                 messageContent += "ERROR: All weights must add up to at least 1";
-                serverDropLocationsAL[guildID][setId]['weight'] = previousWeight;
+                dropGuilds[guildID].dropLocationsAL[setId]['weight'] = previousWeight;
                 validChange = false;
             }
             
         } else {
             
-            for (var i=0; i < dropLocationNamesAL.length; i++) {        
-                nextTotalWeight += Number(serverDropLocationsAL[guildID][i]['weight']);
+            for (var i=0; i < constants.dropLocationNamesAL.length; i++) {        
+                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsAL[i]['weight']);
             }
 
         }
 
-        serverDropWeightsAL[guildID] = nextTotalWeight;
+        dropGuilds[guildID].dropWeightsAL = nextTotalWeight;
 
 	sendMessage(messageContent, message.channel);
 
-	// Start new message
-        messageContent = "```";
-
-    	messageContent += "------------ Apex Legends -------------\n";
-        messageContent += "  ID   Location        Weight  % Chance\n";
-        messageContent += "  -------------------------------------\n";            
-
-        for (var i=0; i < dropLocationNamesAL.length; i++) {
-            var dropLocationID     = i;;
-            var dropLocationWeight = Number(serverDropLocationsAL[guildID][i]['weight']);
-            var dropLocationName   = dropLocationNamesAL[dropLocationID];
-            var dropChance         = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;
-            if (dropChance != 100) dropChance = dropChance.toPrecision(2);
-
-            messageContent += "  ";
-            if (dropLocationID < 10) messageContent += " " + dropLocationID;
-            else                     messageContent += dropLocationID;
-
-            messageContent += " - " + dropLocationName;
-            for (var j = dropLocationName.length; j < 15; j++) {
-                messageContent += " ";
-            }
-
-            messageContent += " - " + dropLocationWeight + "   ";
-            if (dropLocationWeight != 10) messageContent += " ";
-
-            messageContent += " - " + dropChance + "%\n";
-            
-        }        
-        
-        messageContent += "  ------------------------------\n";
-    	messageContent += "Total weight: " + serverDropWeightsAL[guildID] + "\n";        
-
-        messageContent += "```";
-
         if (validChange) {
-            updateGuildDropsAL(guildID).then(result => {
+            dbAWS.updateGuildDropsAL(dropGuilds[guildID]).then(dropBotGuild => {
 
-		sendMessage(messageContent, message.channel, {delay: 200});
+                sendMessage(dropGuilds[guildID].toString(), message.channel, {delay: 200});
 
             }).catch((e) => {
                 console.error("ERROR updateGuildDropsAL: " + e);
@@ -1735,109 +1287,8 @@ async function handleCommand(args, message) {
     case 'settings':
 
         messageContent = "Retrieving info for this server...";
-	sendMessage(messageContent, message.channel);	
-
-        dbAWS.readGuild(guildID).then(result => {
-
-            var myDropLocationsFN        = result.Item.dropLocations;
-            var myDropLocationsAL        = result.Item.dropLocationsAL;
-            serverDefaultGame[guildID]   = result.Item.defaultGame;
-	    serverAudioMute[guildID]     = result.Item.audioMute;
-	    serverDropWeightsFN[guildID] = 0;
-            serverDropWeightsAL[guildID] = 0;
-
-	    // Start new message
-            messageContent = "```";
-
-            messageContent += "Discord Server Settings\n";
-            messageContent += "---------------------------------\n";
-	    messageContent += "Server ID    : " + result.Item.id             + "\n";
-	    messageContent += "Server Name  : " + result.Item.name           + "\n";
-            messageContent += "Default Game : " + serverDefaultGame[guildID] + "\n";
-	    messageContent += "Audio Muted  : " + serverAudioMute[guildID]   + "\n\n";
-	    messageContent += "-------------- Fortnite ---------------\n";
-            messageContent += "  ID   Location        Weight  % Chance\n";
-            messageContent += "  -------------------------------------\n";
-            
-            if (serverDropWeightsFN[guildID] == null || serverDropWeightsFN[guildID] == 0) {
-                serverDropWeightsFN[guildID] = 0;
-                for (var i in myDropLocationsFN) {
-                    serverDropWeightsFN[guildID] += myDropLocationsFN[i];
-                }
-            }
-
-            for (var i in myDropLocationsFN) {
-
-                var dropLocationID = i;
-                var dropLocationWeight = myDropLocationsFN[i];
-                var dropLocationName   = dropLocationNamesFN[dropLocationID];
-                var dropChance         = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;
-                if (dropChance != 100) dropChance = dropChance.toPrecision(2);
-
-		messageContent += "  ";
-                if (dropLocationID < 10) messageContent += " " + dropLocationID;
-                else                     messageContent += dropLocationID;
-
-                messageContent += " - " + dropLocationName;
-                for (var j = dropLocationName.length; j < 15; j++) {
-                    messageContent += " ";
-                }
-
-                messageContent += " - " + dropLocationWeight + "   ";
-                if (dropLocationWeight != 10) messageContent += " ";
-
-                messageContent += " - " + dropChance + "%\n";
-                
-            }
-
-            messageContent += "  ------------------------------------\n";
-	    messageContent += "Total weight: " + serverDropWeightsFN[guildID] + "\n\n";
-
-	    messageContent += "------------ Apex Legends -------------\n";
-            messageContent += "  ID   Location        Weight  % Chance\n";
-            messageContent += "  -------------------------------------\n";            
-
-            if (serverDropWeightsAL[guildID] == null || serverDropWeightsAL[guildID] == 0) {
-                serverDropWeightsAL[guildID] = 0; 
-                for (var i in myDropLocationsAL) {
-                    serverDropWeightsAL[guildID] += myDropLocationsAL[i];
-                }
-            }
-
-            for (var i in myDropLocationsAL) {
-
-                var dropLocationID = i;
-                var dropLocationWeight = myDropLocationsAL[i];
-                var dropLocationName   = dropLocationNamesAL[dropLocationID];
-                var dropChance         = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;
-                if (dropChance != 100) dropChance = dropChance.toPrecision(2);
-
-		messageContent += "  ";
-                if (dropLocationID < 10) messageContent += " " + dropLocationID;
-                else                     messageContent += dropLocationID;
-
-                messageContent += " - " + dropLocationName;
-                for (var j = dropLocationName.length; j < 15; j++) {
-                    messageContent += " ";
-                }
-
-                messageContent += " - " + dropLocationWeight + "   ";
-                if (dropLocationWeight != 10) messageContent += " ";
-
-                messageContent += " - " + dropChance + "%\n";
-                
-            }
-            
-            messageContent += "  ------------------------------------\n";
-	    messageContent += "Total weight: " + serverDropWeightsAL[guildID] + "\n\n";
-            
-            messageContent += "```";
-
-	    sendMessage(messageContent, message.channel, {delay: 500});
-
-        }).catch((e) => {
-            console.log("ERROR: settings command. guildID: " + guildID + "\n" + e);
-        });
+	sendMessage(messageContent, message.channel);
+        sendMessage(dropGuilds[guildID].toString(), message.channel);
 
         break;
               
@@ -1845,113 +1296,11 @@ async function handleCommand(args, message) {
         messageContent = "Resetting all values to their defaults...";
 	sendMessage(messageContent, message.channel);
 
-        dbAWS.readGuild(guildID).then(result => {
-
-            serverDefaultGame[guildID] = "fortnite";
-    	    serverAudioMute[guildID]   = false;
-
-	    // Start new message
-            messageContent = "```";
-
-            messageContent += "Discord Server Settings\n";
-            messageContent += "---------------------------------\n";
-    	    messageContent += "Server ID    : " + result.Item.id             + "\n";
-    	    messageContent += "Server Nam e : " + result.Item.name           + "\n";
-            messageContent += "Default Game : " + serverDefaultGame[guildID] + "\n";
-    	    messageContent += "Audio Muted  : " + serverAudioMute[guildID]   + "\n";
-    	    messageContent += "------------- Fortnite ---------------\n";
-            messageContent += "  ID   Location       Weight  % Chance\n";
-            messageContent += "  ------------------------------------\n";
-
-            serverDropLocationsFN[guildID] = [];
-            serverDropWeightsFN[guildID]   = 0;
-            for (var dropLocationID in result.Item.dropLocations) {
-                serverDropLocationsFN[guildID].push({
-                    id: dropLocationID,
-                    weight: defaultWeightsFN[dropLocationID]['weight']
-                });
-                serverDropWeightsFN[guildID] += Number(defaultWeightsFN[dropLocationID]['weight']);
-            }
-	    
-            for (var dropLocationID in serverDropLocationsFN[guildID]) {
-
-                var dropLocationWeight = Number(serverDropLocationsFN[guildID][dropLocationID]['weight']);
-                var dropLocationName   = dropLocationNamesFN[dropLocationID];
-                var dropChance         = serverDropLocationsFN[guildID][dropLocationID]['weight'] / serverDropWeightsFN[guildID] * 100;
-                if (dropChance != 100) dropChance = dropChance.toPrecision(2);
-
-    		messageContent += "  ";
-                if (dropLocationID < 10) messageContent += " " + dropLocationID;
-                else                     messageContent += dropLocationID;
-
-                messageContent += " - " + dropLocationName;
-                for (var j = dropLocationName.length; j < 15; j++) {
-                    messageContent += " ";
-                }
-
-                messageContent += " - " + dropLocationWeight + "   ";
-                if (dropLocationWeight != 10) messageContent += " ";
-
-                messageContent += " - " + dropChance + "%\n";
-                
-            }
-
-            messageContent += "  ------------------------------------\n";
-    	    messageContent += "Total weight: " + serverDropWeightsFN[guildID] + "\n\n";
-
-    	    messageContent += "----------- Apex Legends -------------\n";
-            messageContent += "  ID   Location       Weight  % Chance\n";
-            messageContent += "  ------------------------------------\n";
-	    
-            serverDropLocationsAL[guildID] = [];
-            serverDropWeightsAL[guildID]   = 0;
-            for (var dropLocationID in result.Item.dropLocationsAL) {
-                serverDropLocationsAL[guildID].push({
-                    id: dropLocationID,
-                    weight: defaultWeightsAL[dropLocationID]['weight']
-                });
-                serverDropWeightsAL[guildID] += Number(defaultWeightsAL[dropLocationID]['weight']);
-            }
-
-            for (var dropLocationID in serverDropLocationsAL[guildID]) {
-
-                var dropLocationWeight = Number(serverDropLocationsAL[guildID][dropLocationID]['weight']);
-                var dropLocationName   = dropLocationNamesAL[dropLocationID];
-                var dropChance         = serverDropLocationsAL[guildID][dropLocationID]['weight'] / serverDropWeightsAL[guildID] * 100;
-                if (dropChance != 100) dropChance = dropChance.toPrecision(2);
-
-    		messageContent += "  ";
-                if (dropLocationID < 10) messageContent += " " + dropLocationID;
-                else                     messageContent += dropLocationID;
-
-                messageContent += " - " + dropLocationName;
-                for (var j = dropLocationName.length; j < 15; j++) {
-                    messageContent += " ";
-                }
-
-                messageContent += " - " + dropLocationWeight + "   ";
-                if (dropLocationWeight != 10) messageContent += " ";
-
-                messageContent += " - " + dropChance + "%\n";
-                
-            }
-
-            messageContent += "  ------------------------------------\n";
-    	    messageContent += "Total weight: " + serverDropWeightsAL[guildID] + "\n";
-	    
-            messageContent += "```";            
-
-            updateGuildAll(guildID).then(result => {
-
-		sendMessage(messageContent, message.channel, {delay: 500});
-                
-            }).catch((e) => {
-                console.error("ERROR updateGuildDrops: " + e);
-            });
-
-            
+        dbAWS.resetGuild(dropGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
+            dropGuilds[guildID] = dropBotGuild;
+	    sendMessage(dropGuilds[guildID].toString(), message.channel, {delay: 500});           
         }).catch((e) => {
-            console.log("ERROR: reset command. guildID: " + guildID + "\n" + e);
+            console.error("ERROR updateGuildDrops: " + e);
         });
 
         break;
@@ -1975,22 +1324,15 @@ async function handleCommand(args, message) {
     case '':
     case 'd':
     case 'drop':
-        if (serverDefaultGame[guildID] === undefined || serverDefaultGame[guildID] == null ||
-            serverDefaultGame[guildID].toLowerCase() == "fortnite") isFortniteCommand = true;
-        else                                                        isFortniteCommand = false;
+        if (dropGuilds[guildID].defaultGame === undefined || dropGuilds[guildID].defaultGame == null ||
+            dropGuilds[guildID].defaultGame.toLowerCase() == "fortnite") isFortniteCommand = true;
+        else                                                             isFortniteCommand = false;
 
-        var guildMember = message.member;
-        if (guildMember === undefined || guildMember == null || !(guildMember)) {
-            console.log("Retrieving guild member with fetchMember: " + message.author.id);
-            guildMember = message.guild.fetchMember(message.author).then(member => {
-                guildMember = member;
-                playDropLocation(isFortniteCommand, message, guildMember);
-            }).catch((e) => {
-                console.error("ERROR retrieving guild member with fetchMember:\n" + e);
-            });            
-        } else {
+        getGuildMember(message).then((guildMember) => {
             playDropLocation(isFortniteCommand, message, guildMember);
-        }                
+        }).catch((e) => {
+            console.error("ERROR retrieving guild member default:\n" + e);
+        });
 	
         break;
         
@@ -2000,19 +1342,11 @@ async function handleCommand(args, message) {
     case 'fortnite':
         isFortniteCommand = true;
 
-        var guildMember = message.member;
-
-        if (guildMember === undefined || guildMember == null || !(guildMember)) {
-            console.log("Retrieving guild member with fetchMember: " + message.author.id);            
-            guildMember = message.guild.fetchMember(message.author).then(member => {
-                guildMember = member;
-                playDropLocation(isFortniteCommand, message, guildMember);
-            }).catch((e) => {
-                console.error("ERROR retrieving guild member with fetchMember:\n" + e);
-            });            
-        } else {
+        getGuildMember(message).then((guildMember) => {
             playDropLocation(isFortniteCommand, message, guildMember);
-        }                
+        }).catch((e) => {
+            console.error("ERROR retrieving guild member Fortnite:\n" + e);
+        });
 	
         break;
         
@@ -2020,20 +1354,12 @@ async function handleCommand(args, message) {
     case 'adrop':
     case 'apex':
         isFortniteCommand = false;
-        
-        var guildMember = message.member;
 
-        if (guildMember === undefined || guildMember == null || !(guildMember)) {
-            console.log("Retrieving guild member with fetchMember: " + message.author.id);            
-            guildMember = message.guild.fetchMember(message.author).then(member => {
-                guildMember = member;
-                playDropLocation(isFortniteCommand, message, guildMember);
-            }).catch((e) => {
-                console.error("ERROR retrieving guild member with fetchMember:\n" + e);
-            });
-        } else {
+        getGuildMember(message).then((guildMember) => {
             playDropLocation(isFortniteCommand, message, guildMember);
-        }                
+        }).catch((e) => {
+            console.error("ERROR retrieving guild member Apex:\n" + e);
+        });
 	
         break;
         
@@ -2140,9 +1466,9 @@ client.on('message', message => {
     
     if (DEBUG_MESSAGE) {
 	if (message.guild) {
-	    console.log(`------------- New command ${client.shard.id} -----`);
+	    console.log(`------------- New command ${shardID} -----`);
 	} else {
-	    console.log(`----- New DMChannelcommand ${client.shard.id} -----`);
+	    console.log(`----- New DMChannelcommand ${shardID} -----`);
 	}
     }
     
@@ -2199,26 +1525,29 @@ client.on('message', message => {
         return;
     }
     
-    var newUser = false;
-
     // First access from a server since reboot or new server.
-    if (serverInitialized[guildID] === undefined || serverInitialized[guildID] == false) {
+    if (dropGuilds[guildID] === undefined || dropGuilds[guildID] == null) {
         if (DEBUG_MESSAGE) console.log("First access from server since at least reboot: ", guildID);
 
         // Assume that database writes will succeed.
         //   If another user comes in before they are done from the same server, we'll trigger the init twice.
-        serverInitialized[guildID] = true; 
+        dropGuilds[guildID] = true;
 
-        initGuildDatabase(guildName, guildID).then(result => {
+        dropGuilds[guildID] = new DBGuild(guildID, guildName);
+        
+        dbAWS.initGuildDatabase(dropGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
             if (DEBUG_MESSAGE) console.log("initGuildDatabase success.");
+            dropGuilds[guildID] = dropBotGuild;
+            client.guilds.size++;
+            console.log("New total servers: " + client.guilds.size);                    
         }).catch(err => {
             console.error("ERROR initGuildDatabase + " + guildID + ":\n" + err);
-            serverInitialized[guildID] = false; 
+            dropGuilds[guildID] = false; 
         }).then(() => {
 
-            if (serverUpdateNotice[guildID]) {
-                serverUpdateNotice[guildID] = false;
-                updateGuildUpdateNotice(guildID).then(result => {                
+            if (dropGuilds[guildID].updateNotice) {
+                dropGuilds[guildID].updateNotice = false;
+                dbAWS.updateGuildUpdateNotice(dropGuilds[guildID]).then(result => {                
                     setTimeout(function() {
 		        message.channel.send("<@!" + userID + "> - DropBot has been updated to version 8.5! \n" +
 					     "Added ability to change default game for \"db!drop\" and \"db!\" commands.\n" +
@@ -2228,10 +1557,11 @@ client.on('message', message => {
 					    );
 	            }, 10000);
                 });
-            }
+            }	    
             
-            initGuild(guildID).then(result => {
-                if (DEBUG_MESSAGE) console.log("initGuild " + guildID + " success.");
+            dbAWS.initGuild(dropGuilds[guildID]).then(dropBotGuild => {
+                if (DEBUG_MESSAGE) console.log("initGuild " + dropBotGuild.id + " success.");
+		dropGuilds[guildID]= dropBotGuild;
 
                 // For the case of using a new server only, we treat the user as new as well.
                 //   If the user is banned, the script will already have exited above.
@@ -2243,7 +1573,6 @@ client.on('message', message => {
                 dropUserWarned[userID]  = false;
 
                 if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
-                    newUser = true;
 		    initUser(user, userID, userDisc, epochTime).then(result => {
                         dropUserInitialized[userID] = true;
 		        if (DEBUG_DATABASE) console.log("initUser " + userID + " in initGuild " +
@@ -2281,11 +1610,8 @@ client.on('message', message => {
         return 0;
     }  
 
-    // *** All users will be scanned at initialization.
-    // This will need to be scaled at heavy user loads but allows us to
-    //   handle all commands immediately without doing 1 or more database accesses.
-    // Servers above handle commands coming in only after they have been intialized.
-    // The server intialzation will also create the user, if necessary, and then send the command and exit
+    // This will be triggered the first time a user sends a command since reboot, if it is not a new server.
+    // The guild initialization above will also create the user, if necessary, and then send the command and exit.
     if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
 
 	dbAWS.readUser(userID).then(result => {
@@ -2309,8 +1635,6 @@ client.on('message', message => {
 		}).catch(err => {
 		    console.error("ERROR initUser: ", err);
 		});
-
-		newUser = true; 
 
             } else {
 		if (DEBUG_MESSAGE) console.log("Found existing user since client start: ", userID);
@@ -2454,19 +1778,12 @@ client.on('message', message => {
     dropUserBlocked[userID] = false;
     dropUserWarned[userID]  = false;
 
-    // No need to update access time for new user. That will be done on initialization
-    if (newUser) {
-        setTimeout(function() {            
+    updateUser(userID, epochTime, false).then(result => {
+        setTimeout(function() {                
             handleCommand(args, message);
         }, 100);
-    } else {
-        updateUser(userID, epochTime, false).then(result => {
-            setTimeout(function() {                
-                handleCommand(args, message);
-            }, 100);
-        }).catch((err) => {
-            console.error("ERROR updateUser bot.on(message): ", err);
-        });
-    }    
+    }).catch((err) => {
+        console.error("ERROR updateUser bot.on(message): ", err);
+    });
 
 });
