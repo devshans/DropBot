@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 8.5.0
+    @version    : 8.6.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -140,7 +140,6 @@ var dropIntros = [
     ,'intro3.wav'
 ];
 
-
 const client = new Discord.Client();
 
 const { prefix, token, donateURL, webhookAuth } = require('./config.json');
@@ -182,11 +181,12 @@ var dbl;
 
 // Set up DBL even in developerMode to use the real DropBot auth.token to check stats.
 //   Do not set a client, webhooks, or update serverCount.
-if (developerMode) {
+// Likewise, only create 1 instance for shard ID 0 so that we aren't running multiple servers, etc.
+if (developerMode || client.shard.id != 0) {
 
     dbl = new DBL(auth.dblToken);
 
-} else {
+} else { // client.shard.id == 0
 
     // Express server for webhooks
     const express = require('express');
@@ -206,108 +206,36 @@ if (developerMode) {
     dbl.webhook.on('vote', vote => {
         //console.log(`User with ID ${vote.user} just voted!`);
         client.fetchUser(vote.user).then(user => {
-            console.log("User " + user.username + ` [${vote.user}] just voted!`);
+	    console.log("User " + user.username + ` [${vote.user}] just voted!`);
         });
-    });
-
-    
-    //DBL webhooks
-    app.post('/dblwebhook', async (req, res) => {
-
-        console.log("/dblwebhook post retrieved");
-        console.log(req.headers);
-        console.log(req.statusCode);
-        
-        if(req.headers.authorization) {
-            //if(req.headers.authorization === config.webhook_secret) {
-            if(req.headers.authorization === "ohheysteve") {
-                await thingToDo();
-                res.send({status: 200});
-            }
-            else {
-                res.send({status: 401, error: 'The auth received does not match the one in your config file.'})
-            }
-        } 
-        else {
-            res.send({status: 403, error: 'There was no auth header in the webhook'})
-        }
-    });
-
-    app.get('/dblwebhook', async (req, res) => {
-
-        console.log("/dblwebhook get retrieved");
-        console.log(req.headers);
-        console.log(req.statusCode);
-
-        
-        if(req.headers.authorization) {
-            //if(req.headers.authorization === config.webhook_secret) {
-            if(req.headers.authorization === "ohheysteve") {
-                await thingToDo();
-                res.send({status: 200});
-            }
-            else {
-                res.send({status: 401, error: 'The auth received does not match the one in your config file.'})
-            }
-        } 
-        else {
-            res.send({status: 403, error: 'There was no auth header in the webhook'})
-        }
     });
 
     server.listen(3000, () => {
         console.log('Listening');
     });
-
+    
 }
-
-console.log("Starting database reads for setup");
-dbAWS.scanUsers(onScan);
-
-function onScan(err, data) {
-    if (err) {
-        console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
-    } else {
-        console.log("dbTableUsers scan succeeded.");
-        data.Items.forEach(function(item) {        
-            if (developerMode) console.log(" -", item.name + ": " + item.blocked);
-            dropUserTimeout[item.id] = item.accessTime;
-            dropUserStrikes[item.id] = 0;
-            dropUserBlocked[item.id] = item.blocked;
-            dropUserIsVoter[item.id] = true;
-	    dropUserWarned[item.id]  = false;
-            dropUserInitialized[item.id] = true;
-            usersTotalCount++;            
-        });
-
-        // continue scanning if we have more movies, because
-        // scan can retrieve a maximum of 1MB of data
-        if (typeof data.LastEvaluatedKey != "undefined") {
-            console.log("dbTableUsers scanning for more...");
-            params.ExclusiveStartKey = data.LastEvaluatedKey;
-            docClient.scan(params, onScan);
-        } else {
-	    console.log("Done scanning dbTableUsers");
-            //console.log("Done reading " + dbTableUsers + " before starting bot for " + usersTotalCount + " users");
-        }
-    }
-}
-
 
 /**
  * The ready event is vital, it means that only _after_ this will your bot start reacting to information
  * received from Discord
  */
 client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}`);   
-    client.user.setActivity(`\"db!help\"`, { type: 'LISTENING' });
+    console.log(`Logged in as ${client.user.tag}`);
+
+    // Only need to set client activity once
+    if (client.shard.id == 0) {
+        client.user.setActivity(`\"db!help\"`, { type: 'LISTENING' });
+    }
     
     // Send client.guilds.size to DBL at startup and then every 30 minutes.
     if (! (developerMode) && client.user.id == DROPBOT_ID) {
-        dblPostStats(); 
-        setInterval(() => {
-            dblPostStats();
-        }, 1800000);	
+        setTimeout(function() {
+            dblPostStats(); 
+            setInterval(() => {
+                dblPostStats();
+            }, 1800000);
+        }, (1000*client.shard.id));
     }
 
     console.log("DropBot listening on " + client.guilds.size + " servers for " + usersTotalCount + " total users");
@@ -317,7 +245,7 @@ client.on('ready', () => {
 });
 
 client.on('error', error => {
-    console.log("ERROR CLIENT " + error);
+    console.log("ERROR CLIENT: " + error);
 
     for (var v in client.voiceConnections) {
         console.log("v: " + v);
@@ -328,9 +256,8 @@ client.on('error', error => {
 });
 
 client.on('disconnect', event => {
-    console.log('Disconnected from Discord. Retrying...');
+    console.log(`ERROR: Disconnected from Discord.\n\tError code: ${event.code}. Retrying...`);
     client.login(auth.token);
-    console.log('Disconnection error code: ' + event.code);
 });
 
 client.on("guildCreate", guild => {
@@ -357,7 +284,7 @@ client.on('guildMemberAdd', member => {
 
 
 // Log our bot in using the token from https://discordapp.com/developers/applications/me
-var loginDelay = developerMode ? 500 : 5000;
+var loginDelay = developerMode ? 10 : 100;
 setTimeout(function() {
     client.login(auth.token);
 }, loginDelay);
@@ -367,7 +294,8 @@ async function initGuildDatabase(guildName, guildID) {
 
     return new Promise(function(resolve, reject) {
 
-        var guildPromise = dbAWS.getDropBotGuilds(guildID);
+        var guildPromise = dbAWS.getDropBotGuilds(guildID);	
+	
         serverUpdateNotice[guildID] = false;
 
         guildPromise.then(function(result) {
@@ -375,6 +303,8 @@ async function initGuildDatabase(guildName, guildID) {
             var dbStringFN = defaultWeightsFN.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});
 	    var dbStringAL = defaultWeightsAL.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});         
 
+	    var epochTime = new Date().getTime();
+	    
             if (result.Item == null) {
                 // Create entry in database.
                 console.log("Creating NEW server database entry: " + guildName + "[" + guildID + "]");
@@ -387,7 +317,9 @@ async function initGuildDatabase(guildName, guildID) {
                         "dropLocations":dbStringFN,
                         "dropLocationsAL":dbStringAL,			
 			"audioMute":false,
-                        "updateNotice":true
+                        "updateNotice":true,
+			"defaultGame":"fortnite",
+			"lastVoteTime":epochTime			
                     }
                 };
 
@@ -878,13 +810,33 @@ async function initGuild(guildID) {
 
 
 function dblPostStats() {
-    console.log('*** DBL: Sending client.guilds.size to Discord Bot List - ' + client.guilds.size);
 
-    dbl.postStats(client.guilds.size).then(() => {
-	console.log('*** DBL: SUCCESS sending client.guilds.size to Discord Bot List - ' + client.guilds.size);
+    let guildsSize = client.guilds.size;
+
+    console.log("Shards: " + client.shard.id + " - " + client.shard.count);
+
+    dbl.postStats(client.guilds.size, client.shard.id, client.shard.count).then(() => {
+        console.log('*** DBL: SUCCESS sending guildsSize to Discord Bot List - ' + guildsSize);
     }).catch(err => {
         console.log("*** DBL WARNING: Could not access dbl.postStats database");
     });
+    
+    // client.shard.fetchClientValues('guilds.size')
+    //     .then(results => {
+    //         console.log;
+    //         console.log(`${results.reduce((prev, guildCount) => prev + guildCount, 0)} total guilds`);
+
+    //         console.log('*** DBL: Sending guildsSize to Discord Bot List - ' + guildsSize);
+
+    //         dbl.postStats(client.guilds.size, client.shards.Id, client.shards.total).then(() => {
+    //         //dbl.postStats(guildsSize).then(() => {
+    //             console.log('*** DBL: SUCCESS sending guildsSize to Discord Bot List - ' + guildsSize);
+    //         }).catch(err => {
+    //             console.log("*** DBL WARNING: Could not access dbl.postStats database");
+    //         });
+
+    //     })
+    //     .catch(console.error);   
 
 }
 
@@ -955,7 +907,6 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
     } else {
 
-        //fixme - SPS. Move the full path prefix to a config file.
         const introFile = '/home/ec2-user/sfx_droplocations/' + dropIntros[Math.floor(Math.random()*dropIntros.length)];
         if (!fs.existsSync(introFile)) {
             console.error("Couldn't find introFile: " + introFile);
@@ -1507,7 +1458,7 @@ async function handleCommand(args, message) {
             let newDefaultGameString = newDefaultGame == "fortnite" ? "Fortnite" : "Apex Legends";
             messageContent = "\u200BChanged default game to " + newDefaultGameString;
             message.reply(messageContent);
-            console.log(`Successfully updated default game for ${message.guild.name}[guildID]`);
+            console.log(`Successfully updated default game for ${message.guild.name}[${guildID}]`);
         }).catch((e) => {
             console.error("ERROR updateGuildDefaultGame " + guildID + ":\n" + e);
         });
@@ -2024,8 +1975,9 @@ async function handleCommand(args, message) {
     case '':
     case 'd':
     case 'drop':
-        if (serverDefaultGame[guildID].toLowerCase() == "apex") isFortniteCommand = false;
-        else                                                    isFortniteCommand = true;
+        if (serverDefaultGame[guildID] === undefined || serverDefaultGame[guildID] == null ||
+            serverDefaultGame[guildID].toLowerCase() == "fortnite") isFortniteCommand = true;
+        else                                                        isFortniteCommand = false;
 
         var guildMember = message.member;
         if (guildMember === undefined || guildMember == null || !(guildMember)) {
@@ -2049,6 +2001,7 @@ async function handleCommand(args, message) {
         isFortniteCommand = true;
 
         var guildMember = message.member;
+
         if (guildMember === undefined || guildMember == null || !(guildMember)) {
             console.log("Retrieving guild member with fetchMember: " + message.author.id);            
             guildMember = message.guild.fetchMember(message.author).then(member => {
@@ -2069,6 +2022,7 @@ async function handleCommand(args, message) {
         isFortniteCommand = false;
         
         var guildMember = message.member;
+
         if (guildMember === undefined || guildMember == null || !(guildMember)) {
             console.log("Retrieving guild member with fetchMember: " + message.author.id);            
             guildMember = message.guild.fetchMember(message.author).then(member => {
@@ -2147,7 +2101,7 @@ client.on('message', message => {
     if (userID == DROPBOT_ID || userID == DEV_DROPBOT_ID) return 0;
 
     var isDevUser = (DEVSHANS_ID == userID);
-    var maxMessageLength = isDevUser ? 50 : 12;
+    var maxMessageLength = isDevUser ? 50 : 20;
 
     if (dropUserBlocked[userID] && !(isDevUser)) return 0;    
 
@@ -2161,7 +2115,7 @@ client.on('message', message => {
     //   Source: https://github.com/meew0/discord-bot-best-practices
     //
     if (developerMode) { // Developer mode allows us to test with bots. Don't listen in production mode.
-        if (! (sanitizedMessage.startsWith(`${prefix}`))) return;    
+        if (! (sanitizedMessage.startsWith(`${prefix}`))) return;
     } else {
         if (! (sanitizedMessage.startsWith(`${prefix}`)) || message.author.bot) return;
     }
@@ -2184,18 +2138,17 @@ client.on('message', message => {
         return 3;
     }         
     
-    
-    if (message.guild) {
-	console.log("Message sent from a guild.");
-    } else {
-	console.log("Message not sent from a guild.");
+    if (DEBUG_MESSAGE) {
+	if (message.guild) {
+	    console.log(`------------- New command ${client.shard.id} -----`);
+	} else {
+	    console.log(`----- New DMChannelcommand ${client.shard.id} -----`);
+	}
     }
-   
+    
     if (message.channel instanceof Discord.DMChannel) {
-	console.log("Message sent from DM channel.");
 
         if (DEBUG_MESSAGE) {
-            console.log("--------- New DMChannel command ---------");
             console.log("  User    : " + userID + " - " + user + "#" + userDisc);
             console.log("  Channel : " + channelID + " - " + channelName);	
             console.log("  Time    : " + dateTime.toISOString());
@@ -2230,7 +2183,6 @@ client.on('message', message => {
     // Main debug code block for application.
     // Logged on every successful message being parsed past the intial sanitation and DM feedback.
     if (DEBUG_MESSAGE) {
-        console.log("------------- New command -------------");
         console.log("  User    : " + userID + " - " + user + "#" + userDisc);
         console.log("  Channel : " + channelID + " - " + channelName);	
         console.log("  Guild   : " + guildID + " - " + guildName);	
@@ -2335,22 +2287,59 @@ client.on('message', message => {
     // Servers above handle commands coming in only after they have been intialized.
     // The server intialzation will also create the user, if necessary, and then send the command and exit
     if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
-        if (DEBUG_MESSAGE) console.log("Detected NEW user sending message in existing server: ", userID);
 
-        epochTime = dateTime.getTime();
-        dropUserTimeout[userID] = epochTime - 1000;
-        dropUserStrikes[userID] = 0;
-        dropUserStrikes[userID] = 0;
-        dropUserBlocked[userID] = false;
-        dropUserWarned[userID]  = false;
+	dbAWS.readUser(userID).then(result => {
 
-        newUser = true;
-        
-	initUser(user, userID, userDisc, epochTime).then(result => {
-	    if (DEBUG_DATABASE) console.log("initUser " + user + "[" + userID + "]success from on.message");
-	}).catch(err => {
-	    console.error("ERROR initUser: ", err);
+            if (result.Item === undefined || result.Item == null) {
+		if (DEBUG_MESSAGE) console.log("Detected NEW user sending message in existing server: ", userID);
+
+		epochTime = dateTime.getTime();
+
+		initUser(user, userID, userDisc, epochTime).then(result => {
+		    if (DEBUG_DATABASE) console.log("initUser " + user + "[" + userID + "]success from on.message");
+
+		    dropUserTimeout[userID] = epochTime - 1000;
+		    dropUserStrikes[userID] = 0;
+		    dropUserStrikes[userID] = 0;
+		    dropUserBlocked[userID] = false;
+		    dropUserWarned[userID]  = false;
+
+		    handleCommand(args, message);
+
+		}).catch(err => {
+		    console.error("ERROR initUser: ", err);
+		});
+
+		newUser = true; 
+
+            } else {
+		if (DEBUG_MESSAGE) console.log("Found existing user since client start: ", userID);
+
+		dropUserTimeout[userID] = epochTime - 1000;
+		dropUserStrikes[userID] = 0;
+		dropUserBlocked[userID] = result.Item.blocked;
+		dropUserIsVoter[userID] = true; // Assume user is voter until check completes after 1st command
+		dropUserWarned[userID]  = false;
+		dropUserInitialized[userID] = true;
+		usersTotalCount++;
+
+		if (dropUserBlocked[userID]) {
+		    console.log(`Blocked user ${userName}[${userID}] attempted to use DropBot`);
+		    return;
+		}
+		
+                updateUser(userID, epochTime, false).then(result => {
+                    handleCommand(args, message);
+                }).catch((err) => {
+                    console.error("ERROR updateUser command update: " + err);
+                });
+
+	    }
+
 	});
+
+	return 0;
+        
     }
 
     if (STRIKE_SYSTEM_ENABLED) {
