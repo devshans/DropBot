@@ -1,10 +1,10 @@
 var AWS     = require("aws-sdk");
+var Constants = require('./Constants.js');
 
 var DEBUG_DATABASE = true;
 
-//fixme - SPS. Change this back for release.
-//var developerMode = filenameArray[filenameArray.length-1] == "DropBot-dev.js" ? true : false;
-var developerMode = true;
+const filenameArray = __filename.split("/");
+var developerMode = filenameArray[filenameArray.length-1] == "db-dev.js" ? true : false;
 
 AWS.config.update({
     region: "us-east-2",
@@ -17,9 +17,6 @@ var docClient = new AWS.DynamoDB.DocumentClient();
 var dbTableLocationsFN = "DropLocations";
 var dbTableLocationsAL = "DropLocationsAL";
 
-var filenameArray = __filename.split("/");
-var developerMode = filenameArray[filenameArray.length-1] == "db-dev.js" ? true : false;
-
 if (developerMode) {
     var dbTableGuilds    = "dev_DropGuilds";
     var dbTableUsers     = "dev_DropUsers";
@@ -28,6 +25,21 @@ if (developerMode) {
     var dbTableUsers     = "DropUsers";
 }
 
+// ----------------------------------------------------------------------------------------
+// Database async function implementations
+// ----------------------------------------------------------------------------------------
+
+var readUser = async function (id) {
+
+    var params = {
+        TableName: dbTableUsers,
+        Key:{
+	    "id":id
+        }
+    };
+
+    return docClient.get(params).promise();
+};
 
 var readGuild = async function(id) {
 
@@ -41,7 +53,7 @@ var readGuild = async function(id) {
     return docClient.get(params).promise();
 };
 
-var getDropBotGuilds = async function(id) {
+var getGuilds = async function(id) {
 
     var params = {
         TableName: dbTableGuilds,
@@ -65,12 +77,117 @@ var databaseUpdate = async function (params) {
     
 };
 
+var databaseUpdate = async function (params) {
+
+    return docClient.update(params).promise();
+    
+};
+
+var initUser = async function (dropBotUser) {
+
+    return new Promise(function(resolve, reject) {
+
+        var userPromise = getUsers(dropBotUser.id);
+
+        userPromise.then(function(result) {
+
+            var epochTime = new Date().getTime();
+
+            if (result.Item == null) {
+                if (DEBUG_DATABASE) console.log("Creating NEW user database entry: " + dropBotUser.name + "#" + dropBotUser.disc + "[" + dropBotUser.id + "]");
+
+                var params = {
+                    TableName: dbTableUsers,
+                    Item:{
+                        "id"           :dropBotUser.id,
+                        "discriminator":dropBotUser.disc,
+                        "name"         :dropBotUser.name,
+                        "accessTime"   :dropBotUser.timeout,
+                        "creationTime" :epochTime,
+                        "lastVoteTime" :epochTime,
+                        "numAccesses"  :1,
+                        "numVotes"     :0,
+                        "isVoter"      :false,
+                        "blocked"      :false
+                    }
+                };
+
+		databasePut(params).then(function(result) {
+                    if (DEBUG_DATABASE) console.log("Successfully created new user entry.");
+                    resolve(dropBotUser);
+                }, function(err) {
+                    console.error("ERROR initUser: Failed to create database entry.\n" + err);
+                    reject(err);
+                });
+
+            } else {
+                resolve(dropBotUser);
+            }
+
+        }, function(err) {
+            console.log(err);
+            reject(err);
+        });
+
+    });
+
+};
+
+async function updateUser(dropBotUser) {
+
+    return new Promise(function(resolve, reject) {
+
+        var epochTime = new Date().getTime();
+
+        if (DEBUG_DATABASE) console.log("udpateUser: " + dropBotUser.name + "#" + dropBotUser.disc + "[" + dropBotUser.id + "]");
+
+        var params = {
+            TableName: dbTableUsers,
+            Key:{
+                "id":dropBotUser.id
+            },
+            ConditionExpression: 'attribute_exists(id)',
+            UpdateExpression: "set accessTime = :a, blocked = :b, numAccesses = numAccesses + :val",
+            ExpressionAttributeValues:{
+                ":a":epochTime,
+                ":val":1,
+                ":b":dropBotUser.blocked
+            },
+            ReturnValues:"UPDATED_NEW"
+        };
+
+	databaseUpdate(params).then(function(result) {
+            if (DEBUG_DATABASE) console.log("Successfully updated user database entry.");
+            resolve(dropBotUser);
+        }, function(err) {
+            console.error("ERROR updateUser: Failed to update user database entry:\n" + err);
+            reject(err);
+        });
+
+    });
+
+};
+
+var getUsers = async function (id) {
+
+    console.log("getUsers: ", id);
+
+    var params = {
+        TableName: dbTableUsers,
+        Key:{
+	    "id":id
+        }
+    };
+
+    return docClient.get(params).promise();
+};
+
 
 var initGuildDatabase = async function(dropBotGuild, defaultWeightsFN, defaultWeightsAL) {
    
     return new Promise(function(resolve, reject) {
 
-        var guildPromise = getDropBotGuilds(dropBotGuild.id);
+        var guildPromise = getGuilds(dropBotGuild.id);
 
         guildPromise.then(function(result) {
 
@@ -132,7 +249,7 @@ var initGuildDatabase = async function(dropBotGuild, defaultWeightsFN, defaultWe
 };
 
 
-initGuild = async function(dropBotGuild) {
+var initGuild = async function(dropBotGuild) {
 
     return new Promise(function(resolve, reject) {
 
@@ -452,75 +569,130 @@ var updateGuildUpdateNotice = async function(dropBotGuild) {
 };
 
 
+var getDropLocationFN = async function (id) {
+
+    var params = {
+        TableName: dbTableLocationsFN,
+        Key:{
+            "id":id
+        }
+    };
+
+    return docClient.get(params).promise();
+};
+
+var getDropLocationAL = async function (id) {
+
+    var params = {
+        TableName: dbTableLocationsAL,
+        Key:{
+            "id":id
+        }
+    };
+
+    return docClient.get(params).promise();
+};
+
+
+var initDefaultWeightsFN = async function () {
+
+    return new Promise(function(resolve, reject) {
+
+        var promises = [];
+        var defaultWeightsFN = [];
+
+        console.log("Getting Fortnite default weights for client.");
+
+        for (var id = 0; id < Constants.dropLocationNamesFN.length; id++) {
+            promises.push(getDropLocationFN(id));
+        }
+
+        Promise.all(promises).then((results) => {
+
+            for (var i=0; i < results.length; i++) {
+                var dropLocationWeight = results[i].Item.defaultWeight;
+                var dropLocationName   = results[i].Item.name;
+
+                defaultWeightsFN.push({
+                    id: results[i].Item.id,
+                    weight: dropLocationWeight
+                });
+
+            }
+
+            resolve(defaultWeightsFN);
+
+        }).catch((e) => {
+            console.error("ERROR initDefaultWeightsFN:\n" + e);
+            reject(e);
+        });
+    });
+
+}
+
+var initDefaultWeightsAL = async function () {
+
+    return new Promise(function(resolve, reject) {
+
+        var promises = [];
+        var defaultWeightsAL = [];
+
+        console.log("Getting Apex default weights for client.");
+
+        for (var id = 0; id < Constants.dropLocationNamesAL.length; id++) {
+            promises.push(getDropLocationAL(id));
+        }
+
+        Promise.all(promises).then((results) => {
+
+            for (var i=0; i < results.length; i++) {
+                var dropLocationWeight = results[i].Item.defaultWeight;
+                var dropLocationName   = results[i].Item.name;
+
+                defaultWeightsAL.push({
+                    id: results[i].Item.id,
+                    weight: dropLocationWeight
+                });
+
+            }
+
+            resolve(defaultWeightsAL);
+
+        }).catch((e) => {
+            console.error("ERROR initDefaultWeightsAL:\n" + e);
+            reject(e);
+        });
+    });
+
+};
+
+
+// ----------------------------------------------------------------------------------------
+// Database function exports
+// ----------------------------------------------------------------------------------------
 
 module.exports = {
     
-    // ----------------------------------------------------------------------------------------
-    // Database async functions
-    // ----------------------------------------------------------------------------------------
-
     databasePut    : databasePut,
     databaseUpdate : databaseUpdate,
-    
-    getDropBotUsers : async function (id) {
 
-	console.log("getDropBotUsers: ", id);
+    // DropBot Locations Database(s) Functions
+    initDefaultWeightsFN : initDefaultWeightsFN,
+    initDefaultWeightsAL : initDefaultWeightsAL,
 
-	var params = {
-            TableName: dbTableUsers,
-            Key:{
-		"id":id
-            }
-	};
-
-	return docClient.get(params).promise();
-    },
-
-    getDropBotGuilds : getDropBotGuilds,
-    
-    getDropLocationFN : async function (id) {
-
-	var params = {
-            TableName: dbTableLocationsFN,
-            Key:{
-		"id":id
-            }
-	};
-
-	return docClient.get(params).promise();
-    },
-
-    getDropLocationAL : async function (id) {
-
-	var params = {
-            TableName: dbTableLocationsAL,
-            Key:{
-		"id":id
-            }
-	};
-
-	return docClient.get(params).promise();
-    },
-
-    readUser : async function (id) {
-
-	var params = {
-            TableName: dbTableUsers,
-            Key:{
-		"id":id
-            }
-	};
-
-	return docClient.get(params).promise();
-    },
-
-    readGuild : readGuild,
-    
-    // Helper functions
+    // DropBot User Database Functions
+    initUser   : initUser,
+    readUser   : readUser,
+    updateUser : updateUser,
+    getUsers   : getUsers,
+        
+    // DropBot Guild Database functions
 
     initGuildDatabase       : initGuildDatabase,
     initGuild               : initGuild,
+    readGuild               : readGuild,
     resetGuild              : resetGuild,
+    getGuilds               : getGuilds,  
     updateGuildAll          : updateGuildAll,
     updateGuildDropsFN      : updateGuildDropsFN,
     updateGuildDropsAL      : updateGuildDropsAL,

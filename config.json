@@ -1,0 +1,9 @@
+{
+    "prefix"      : "db!",
+    "token"       : "<Discord bot production token>",
+    "tokenDev"    : "<Discord bot development token>",
+    "dblToken"    : "<Discord Bot Lists token>",
+    "donateURL"   : "<PayPal URL for donations>",
+    "webhookAuth" : "<Webhook password>",
+    "webhookPort" : <Webhook server port>    
+}

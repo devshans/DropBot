@@ -1,8 +1,8 @@
 {
   "name": "DropBot",
-  "version": "8.7.0",
+  "version": "8.8.0",
   "description": "Discordapp bot that randomly selects a location to start/drop in for the Apex Legends and Fortnite Battle Royale games.",
-  "main": "DropBot.js",
+  "main": "DropBotSharder.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/devshans/DropBot.git"

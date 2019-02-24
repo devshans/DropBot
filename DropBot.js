@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 8.7.0
+    @version    : 8.8.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -32,27 +32,28 @@ var DEBUG_VOTE     = true;
 var STRIKE_SYSTEM_ENABLED = false;
 var VOTE_SYSTEM_ENABLED   = false;
 
-const NO_VOTE_USER_TIMEOUT_SEC = (1 * 60);
-const VOTE_USER_TIMEOUT_SEC    = 1;
-const USER_MAX_STRIKES = 5;
-
-const NUM_DROP_LOCATIONS = 21;
-const DEFAULT_WEIGHT =  5;
-const MAX_WEIGHT     = 10;
-
-const Discord = require('discord.js');
 const fs      = require('fs');
 const rwc     = require('random-weighted-choice');
-const AWS     = require("aws-sdk");
 const date    = require('date-and-time');
 
-// Discord ID of this bot to identify ourselves.
-const DROPBOT_ID      = "487298106849886224";
-const DEV_DROPBOT_ID  = "533851604651081728";
+const Discord = require('discord.js');
+const AWS     = require("aws-sdk");
+const DBL     = require("dblapi.js");
 
-const DROPBOT_SERVER_ID = "534217612805275658"; // Official DropBot Server
-const DROPBOT_TEST_CHANNEL_ID1 = "535268088569135116"; // dropbot-test-1
-const DROPBOT_TEST_CHANNEL_ID2 = "535268112833052672"; // dropbot-test-2
+const DBGuild   = require('./DBGuild.js');
+const DBUser    = require('./DBUser.js');
+const Constants = require('./Constants.js');
+
+const config = require('./config.json');
+
+// Args are sent as strings. Need to parse boolean as string.
+const developerModeArg = process.argv[2];
+if (developerModeArg == "true") developerMode = true;
+else                            developerMode = false;
+if (developerMode) console.log("Launching DropBot-dev.js in DEVELOPER mode.");
+else               console.log("** Launching DropBot.js in PRODUCTION mode. **"); 
+
+const dbAWS = developerMode ? require('./db-dev.js') : require('./db.js');
 
 var DEVSHANS_ID = -1;
 
@@ -68,18 +69,10 @@ fs.readFile(devFilename, 'utf8', function(err, data) {
 });
 
 // Database status in memory
-var dropUserInitialized = {};
+var dbGuilds = [];
+var dbUsers  = [];
 
-var usersTotalCount     = 0;
-var dropUserTimeout     = {};
-var dropUserStrikes     = {};
-var dropUserBlocked     = {};
-var dropUserIsVoter     = {};
-var dropUserWarned      = {};
-
-var dropGuilds = [];
-
-var dropIntros = [
+const dropIntros = [
      'intro.wav'
     ,'intro2.wav'
     ,'intro3.wav'
@@ -88,52 +81,28 @@ var dropIntros = [
 const client  = new Discord.Client();
 const shardID = client.shard === null ? -1 : client.shard.id;
 
-const { prefix, token, donateURL, webhookAuth } = require('./config.json');
-
-var filenameArray = __filename.split("/");
-
-var developerMode = filenameArray[filenameArray.length-1] == "DropBot-dev.js" ? true : false;
-
-const DBGuild = require('./DBGuild.js');
-var constants = require('./constants.js');
-
-// DynamoDB Table Names
-const dbTableLocationsFN = "DropLocations";
-const dbTableLocationsAL = "DropLocationsAL";
-
-if (developerMode) {
-    var dbAWS = require('./db-dev.js');
-    var dbTableGuilds    = "dev_DropGuilds";
-    var dbTableUsers     = "dev_DropUsers";
-} else {
-    var dbAWS = require('./db.js');
-    var dbTableGuilds    = "DropGuilds";
-    var dbTableUsers     = "DropUsers";
-}
-
-if (developerMode) {
-    console.log("Starting DropBot-dev.js in DEVELOPER mode");
-    var auth    = require('./auth-dev.json');
-} else {
-    console.log("*** Starting DropBot in PRODUCTION mode ***");
-    var auth    = require('./auth.json');
-}
-
+// Retrieve default weights and start client when ready.
 var defaultWeightsFN = [];
-initDefaultWeightsFN().then((result) => console.log("Retrieved default weights for Fortnite."));
-
 var defaultWeightsAL = [];
-initDefaultWeightsAL().then((result) => console.log("Retrieved default weights for Apex Legends."));
+dbAWS.initDefaultWeightsFN().then((result) => {
+    console.log("Retrieved default weights for Fortnite.")
+    defaultWeightsFN = result;
+    
+    dbAWS.initDefaultWeightsAL().then((result) => {
+        console.log("Retrieved default weights for Apex Legends.")
+        defaultWeightsAL = result;
 
-const DBL = require("dblapi.js");
-var dbl;
+        // Log our bot in using the token from https://discordapp.com/developers/applications/me
+        client.login(client.token);
+    });    
+});
 
 // Set up DBL even in developerMode to use the real DropBot auth.token to check stats.
 //   Do not set a client, webhooks, or update serverCount.
 // Likewise, only create 1 instance for shard ID 0 so that we aren't running multiple servers, etc.
 if (developerMode || shardID != 0) {
 
-    dbl = new DBL(auth.dblToken);
+    const dbl = new DBL(config.dblToken);
 
 } else { // shardID == 0
 
@@ -146,21 +115,20 @@ if (developerMode || shardID != 0) {
 
     // DiscordBotList API
 
-    dbl = new DBL(auth.dblToken, { webhookAuth: webhookAuth, webhookServer: server, webhookPort: 3000 });
+    const dbl = new DBL(config.dblToken, { webhookAuth: config.webhookAuth, webhookServer: server, webhookPort: config.webhookPort });
 
     dbl.webhook.on('ready', hook => {
         console.log(`Webhook running at http://${hook.hostname}:${hook.port}${hook.path}`);
     });
 
     dbl.webhook.on('vote', vote => {
-        //console.log(`User with ID ${vote.user} just voted!`);
         client.fetchUser(vote.user).then(user => {
 	    console.log("User " + user.username + ` [${vote.user}] just voted!`);
         });
     });
 
-    server.listen(3000, () => {
-        console.log('Listening');
+    server.listen(config.webhookPort, () => {
+        console.log('Listening on port #' + config.webhookPort);
     });
     
 }
@@ -176,7 +144,7 @@ client.on('ready', () => {
     client.user.setActivity(`\"db!help\"`, { type: 'LISTENING' });
     
     // Send client.guilds.size to DBL at startup and then every 30 minutes.
-    if (! (developerMode) && client.user.id == DROPBOT_ID) {
+    if (! (developerMode) && client.user.id == Constants.DROPBOT_ID) {
         setTimeout(function() {
             dblPostStats(); 
             setInterval(() => {
@@ -185,9 +153,7 @@ client.on('ready', () => {
         }, (1000*shardID));
     }
 
-    console.log("DropBot listening on " + client.guilds.size + " servers for " + usersTotalCount + " total users");
-
-    console.log('DropBot done initializing. Ready to accept user commands.');
+    console.log(`DropBot shard ${client.shard.id} listening on ${client.guilds.size} servers for commands.`);
     
 });
 
@@ -204,226 +170,20 @@ client.on('error', error => {
 
 client.on('disconnect', event => {
     console.log(`ERROR: Disconnected from Discord.\n\tError code: ${event.code}. Retrying...`);
-    client.login(auth.token);
+    client.login(client.token);
 });
 
 // This event triggers when the bot joins a guild.
 client.on("guildCreate", guild => {
+
   console.log(`New guild joined: ${guild.name} (id: ${guild.id}). This guild has ${guild.memberCount} members!`);
+  //client.user.setActivity(`Serving ${client.guilds.size} servers`);
 });
 
 // This event triggers when the bot is removed from a guild.
 client.on("guildDelete", guild => {
   console.log(`I have been removed from: ${guild.name} (id: ${guild.id})`);
 });
-
-// Log our bot in using the token from https://discordapp.com/developers/applications/me
-var loginDelay = developerMode ? 10 : 100;
-setTimeout(function() {
-    client.login(auth.token);
-}, loginDelay);
-
-async function initUser(userName, userID, userDisc, accessTime) {
-
-    return new Promise(function(resolve, reject) {
-
-        var userPromise = dbAWS.getDropBotUsers(userID);
-
-        userPromise.then(function(result) {
-
-            if (result.Item == null) {
-                if (DEBUG_DATABASE) console.log("Creating NEW user database entry: " + userName + "#" + userDisc + "[" + userID + "]");
-
-                var params = {
-                    TableName: dbTableUsers,
-                    Item:{
-                        "id":userID,
-                        "discriminator":userDisc,
-                        "name":userName,
-                        "accessTime":accessTime,
-                        "creationTime":accessTime,
-                        "lastVoteTime":accessTime,
-                        "numAccesses":1,
-                        "numVotes":0,
-                        "isVoter":false,
-                        "blocked":false
-                    }
-                };
-
-		dbAWS.databasePut(params).then(function(result) {
-                    if (DEBUG_DATABASE) console.log("Successfully created new user entry.");
-                    dropUserTimeout[userID] = accessTime;
-                    dropUserStrikes[userID] = 0;
-                    dropUserBlocked[userID] = false;
-                    dropUserIsVoter[userID] = true;
-		    dropUserWarned[userID]  = false;
-                    dropUserInitialized[userID] = true;
-                    usersTotalCount++;
-                    console.log("New total users: " + usersTotalCount);
-                    resolve(result);
-                }, function(err) {
-                    console.error("ERROR initUser: Failed to create database entry.\n" + err);
-                    reject(err);
-                });
-
-            } else {
-                resolve(result);
-            }
-
-        }, function(err) {
-            console.log(err);
-            reject(err);
-        });
-
-    });
-
-}
-
-async function updateUser(userID, accessTime, blocked) {
-
-    return new Promise(function(resolve, reject) {
-
-        if (DEBUG_DATABASE) console.log("updateUser for user: ", userID);
-
-        var params = {
-            TableName: dbTableUsers,
-            Key:{
-                "id":userID
-            },
-            ConditionExpression: 'attribute_exists(id)',
-            UpdateExpression: "set accessTime = :a, blocked = :b, numAccesses = numAccesses + :val",
-            ExpressionAttributeValues:{
-                ":a":accessTime,
-                ":val":1,
-                ":b":blocked
-            },
-            ReturnValues:"UPDATED_NEW"
-        };
-
-	dbAWS.databaseUpdate(params).then(function(result) {
-            dropUserTimeout[userID] = accessTime;
-            if (DEBUG_DATABASE) console.log("Successfully updated user database entry.");
-            resolve(result);
-        }, function(err) {
-            console.error("ERROR updateUser: Failed to update user database entry:\n" + err);
-            reject(err);
-        });
-
-    });
-
-}
-
-async function resetAllUserBans() {
-
-    return new Promise(function(resolve, reject) {
-
-        var params = {
-            TableName: dbTableUsers,
-            FilterExpression: "blocked = :bool",
-            ExpressionAttributeValues: {
-                ":bool": true
-            }            
-        };
-
-        console.log("Scanning " + dbTableUsers + " table for banned users.");
-        dbAWS.docClient.scan(params, resetAllUserBanScan);
-        
-    });
-}
-
-function resetAllUserBanScan(err, data) {
-    if (err) {
-        console.error("ERROR resetAllUserBanScan: Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
-    } else {
-        // Log and reset all banned users
-        console.log("Scan succeeded.");
-        data.Items.forEach(function(item) {
-            console.log(" -", item.name + ": " + item.blocked);
-            dropUserBlocked[item.id] = false;
-            dropUserIsVoter[item.id] = true;
-	    dropUserWarned[item.id]  = false;
-            updateUser(item.id, (new Date).getTime(), false);
-        });
-
-        // continue scanning if we have more users, because
-        // scan can retrieve a maximum of 1MB of data
-        if (typeof data.LastEvaluatedKey != "undefined") {
-            console.log("Scanning for more...");
-            params.ExclusiveStartKey = data.LastEvaluatedKey;
-            dbAWS.docClient.scan(params, resetAllUserBanScan);
-        }
-    }
-}
-
-async function initDefaultWeightsFN(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        var promises = [];
-
-        console.log("Getting default weights for client.");
-
-        for (var id = 0; id < constants.dropLocationNamesFN.length; id++) {
-            promises.push(dbAWS.getDropLocationFN(id));
-        }
-
-        Promise.all(promises).then((results) => {
-
-            for (var i=0; i < results.length; i++) {
-                var dropLocationWeight = results[i].Item.defaultWeight;
-                var dropLocationName   = results[i].Item.name;
-
-                defaultWeightsFN.push({
-                    id: results[i].Item.id,
-                    weight: dropLocationWeight
-                });
-
-            }
-
-            resolve(defaultWeightsFN);
-
-        }).catch((e) => {
-            console.error("ERROR initDefaultWeightsFN:\n" + e);
-            reject(e);
-        });
-    });
-
-}
-
-async function initDefaultWeightsAL(guildID) {
-
-    return new Promise(function(resolve, reject) {
-
-        var promises = [];
-
-        console.log("Getting default weights for client.");
-
-        for (var id = 0; id < constants.dropLocationNamesAL.length; id++) {
-            promises.push(dbAWS.getDropLocationAL(id));
-        }
-
-        Promise.all(promises).then((results) => {
-
-            for (var i=0; i < results.length; i++) {
-                var dropLocationWeight = results[i].Item.defaultWeight;
-                var dropLocationName   = results[i].Item.name;
-
-                defaultWeightsAL.push({
-                    id: results[i].Item.id,
-                    weight: dropLocationWeight
-                });
-
-            }
-
-            resolve(defaultWeightsAL);
-
-        }).catch((e) => {
-            console.error("ERROR initDefaultWeightsAL:\n" + e);
-            reject(e);
-        });
-    });
-
-}
 
 function dblPostStats() {
 
@@ -436,6 +196,12 @@ function dblPostStats() {
     }).catch(err => {
         console.log("*** DBL WARNING: Could not access dbl.postStats database");
     });
+
+    client.shard.fetchClientValues('guilds.size')
+        .then(results => {
+            console.log(`${results.reduce((prev, val) => prev + val, 0)} total guilds`);
+        })
+        .catch(console.error);       
 
 }
 
@@ -454,7 +220,6 @@ async function getGuildMember(message) {
                 reject(e);
             });            
         } else {
-            //playDropLocation(isFortniteCommand, message, guildMember);
             resolve(guildMember);
         }
 
@@ -465,7 +230,7 @@ async function getGuildMember(message) {
 async function playDropLocation(isFortnite, message, guildMember) {
 
     let guildID = message.guild.id;
-    const dropLocationID = isFortnite ? rwc(dropGuilds[guildID].dropLocationsFN) : rwc(dropGuilds[guildID].dropLocationsAL);
+    const dropLocationID = isFortnite ? rwc(dbGuilds[guildID].dropLocationsFN) : rwc(dbGuilds[guildID].dropLocationsAL);
 
     if (dropLocationID == null) {
         console.error("ERROR: Could not select a drop location.");
@@ -474,7 +239,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
         return;
     }
 
-    const dropLocation   = isFortnite ? constants.dropLocationNamesFN[dropLocationID] : constants.dropLocationNamesAL[dropLocationID];
+    const dropLocation   = isFortnite ? Constants.dropLocationNamesFN[dropLocationID] : Constants.dropLocationNamesAL[dropLocationID];
     const gameName       = isFortnite ? "Fortnite" : "Apex Legends";
     
     let dropChance;
@@ -486,13 +251,13 @@ async function playDropLocation(isFortnite, message, guildMember) {
     }   
 
     if (DEBUG_COMMAND) {
-        if (isFortnite) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + constants.dropLocationNamesFN[dropLocationID]);
-        else            console.log("Dropping at dropLocationId: " + dropLocationID + " - " + constants.dropLocationNamesAL[dropLocationID]);
+        if (isFortnite) console.log("Dropping at dropLocationId: " + dropLocationID + " - " + Constants.dropLocationNamesFN[dropLocationID]);
+        else            console.log("Dropping at dropLocationId: " + dropLocationID + " - " + Constants.dropLocationNamesAL[dropLocationID]);
     }
 
     if (isFortnite) {
-        if (dropGuilds[guildID].dropLocationsFN[dropLocationID]['weight']) {
-            dropChance = dropGuilds[guildID].dropLocationsFN[dropLocationID]['weight'] / dropGuilds[guildID].dropWeightsFN * 100;
+        if (dbGuilds[guildID].dropLocationsFN[dropLocationID]['weight']) {
+            dropChance = dbGuilds[guildID].dropLocationsFN[dropLocationID]['weight'] / dbGuilds[guildID].dropWeightsFN * 100;
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
             console.error("ERROR: dropLocationID " + dropLocationID + " is undefined");
@@ -501,8 +266,8 @@ async function playDropLocation(isFortnite, message, guildMember) {
             return;
         }
     } else {
-        if (dropGuilds[guildID].dropLocationsAL[dropLocationID]['weight']) {
-            dropChance = dropGuilds[guildID].dropLocationsAL[dropLocationID]['weight'] / dropGuilds[guildID].dropWeightsAL * 100;
+        if (dbGuilds[guildID].dropLocationsAL[dropLocationID]['weight']) {
+            dropChance = dbGuilds[guildID].dropLocationsAL[dropLocationID]['weight'] / dbGuilds[guildID].dropWeightsAL * 100;
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
         } else {
             console.error("ERROR: dropLocationID " + dropLocationID + " is undefined");
@@ -519,7 +284,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
     messageContent = "";
     
-    if (dropGuilds[guildID].audioMute) {           
+    if (dbGuilds[guildID].audioMute) {           
 
         if (guildMember.voiceChannel) {
     	    dropLocationMessage += "\n```User is in a voice channel while DropBot is muted. Use \"db!unmute\" to play audio.```";
@@ -640,7 +405,8 @@ async function handleCommand(args, message) {
     var cmd = args[0];
     var messageContent = "";
 
-    let isFortniteCommand = true;
+    let isFortniteCommand    = true;
+    let isFortniteCommandSet = false;
 
     if (DEBUG_COMMAND) console.log("handleCommand: user=" + userID + " - " +  args);
 
@@ -730,40 +496,6 @@ async function handleCommand(args, message) {
             messageContent = "Set VOTE_SYSTEM_ENABLED to " + VOTE_SYSTEM_ENABLED;
 	    sendMessage(messageContent, message.channel);
             break;           
-            
-        case 'resetban':
-            if (args.length < 1) {
-                messageContent = "Please specify user ID to unban.";
-		sendMessage(messageContent, message.channel);
-                break;
-            }
-            var otherUserID = args[0]; 
-            messageContent = "Resetting ban for user ID: " + otherUserID;
-	    sendMessage(messageContent, message.channel);
-	    
-            updateUser(otherUserID, (new Date).getTime(), false).then(result => {
-
-                dropUserBlocked[otherUserID] = false;
-		messageContent = "Ban cleared successfully.";
-		sendMessage(messageContent, message.channel, {delay: 200});
-                
-            }).catch((e) => {
-                console.error("ERROR resetban: " + e);
-		messageContent = "ERROR: " + e;
-		sendMessage(messageContent, message.channel, {delay: 200});
-            });
-            break;
-            
-        case 'resetallbans':
-            messageContent = "Resetting bans for all users...";
-	    sendMessage(messageContent, message.channel);
-
-            resetAllUserBans();
-
-	    messageContent = "Done.";
-	    sendMessage(messageContent, message.channel, {delay: 200});
-
-	    break;
 
 	case 'dumpuser':
 	    if (args.length < 1) {
@@ -771,20 +503,18 @@ async function handleCommand(args, message) {
 		sendMessage(messageContent, message.channel);
                 break;
 	    }
-	    var otherUserID = args[0];
 
-	    messageContent = "```";
-	    messageContent += "--- Current state of user in DropBot ---\n";
-	    messageContent += "  dropUserID      - " + dropUserInitialized[otherUserID] + "\n";
-	    messageContent += "  dropUserTimeout - " + dropUserTimeout[otherUserID] + "\n";
-	    messageContent += "  dropUserStrikes - " + dropUserStrikes[otherUserID] + "\n";
-	    messageContent += "  dropUserBlocked - " + dropUserBlocked[otherUserID] + "\n";
-	    messageContent += "  dropUserIsVoter - " + dropUserIsVoter[otherUserID] + "\n";
-    	    messageContent += "  dropUserWarned  - " + dropUserWarned[otherUserID]  + "\n";
-	    messageContent += "```";
-	    sendMessage(messageContent, message.channel);
-	    
-	    break;
+            sendMessage(dbUsers[args[0]].toString(), message.channel);
+            
+            break;
+
+	case 'dumpusers':
+
+            for (var i in dbUsers) {
+                sendMessage(dbUsers[i].toString(), message.channel);
+            }
+            
+            break;
 
 	case 'resetvoice':
 
@@ -816,9 +546,9 @@ async function handleCommand(args, message) {
             break;
 
         case 'getstats':
-	    dbl.getStats(DROPBOT_ID).then(stats => {
+	    dbl.getStats(Constants.DROPBOT_ID).then(stats => {
 		var shards = stats.shards ? 1 : stats.shards;
-		messageContent = `\`\`\`Servers - ${stats.server_count}\nShards  - ${shards}\nUsers   - ${usersTotalCount}\`\`\``;
+		messageContent = `\`\`\`Servers - ${stats.server_count}\nShards  - ${shards}\`\`\``;
 		sendMessage(messageContent, message.channel);
 	    });
             break;
@@ -873,7 +603,7 @@ async function handleCommand(args, message) {
                 var messageContent = "";
                 if (! (voted)) {
 		    messageContent  = userID + " has NOT been verified to use DropBot in the last 24 hours.\n";
-		    messageContent += "Strike " + dropUserStrikes[userID] + "/" + USER_MAX_STRIKES;
+		    messageContent += "Strike " + dropUserStrikes[userID] + "/" + Constants.USER_MAX_STRIKES;
 		    console.log(messageContent);                
                 } else {
 		    messageContent  = userID + " HAS voted to use DropBot in the last 24 hours.\n";
@@ -906,8 +636,8 @@ async function handleCommand(args, message) {
         messageContent += '```';
         messageContent += "Author   : devshans\n";
         messageContent += "GitHub   : https://github.com/devshans/DropBot\n";        
-        messageContent += "Bot Link : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
-        messageContent += "Vote     : https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
+        messageContent += "Bot Link : https://discordbots.org/bot/" + Constants.DROPBOT_ID + "\n";
+        messageContent += "Vote     : https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote\n";
         messageContent += 'Discord support server: https://discord.gg/YJWEsvV \n\n';
         messageContent += 'usage: db![option]\n\n';
         messageContent += 'db![option]            Description\n';
@@ -935,7 +665,7 @@ async function handleCommand(args, message) {
     case 'd':
     case 'donate':
         message.reply("Donate to DropBot development from the link below!");
-        message.channel.send(donateURL);
+        message.channel.send(config.donateURL);
         break;
         
     // Only intended to be used by private error handling
@@ -969,8 +699,8 @@ async function handleCommand(args, message) {
                         dropUserWarned[userID] = true;
                         messageContent  = "\u200B<@!" + userID + "> has NOT yet voted in the last 24 hours.\n";
                         messageContent += "If you just voted, wait about a minute or 2 for it to process.\n";
-                        messageContent += "You are rate limited to using one command every " + NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
-    		        messageContent += "To lessen restriction to " + VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
+                        messageContent += "You are rate limited to using one command every " + Constants.NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
+    		        messageContent += "To lessen restriction to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote\n";
                         messageContent += "You may check if your vote has been processed immediately and without penalty with \"db!vote\"";
                     }
                     args = ["error", messageContent];
@@ -988,7 +718,7 @@ async function handleCommand(args, message) {
                     dropUserWarned[userID]  = false;
 
                     updateUser(userID, epochTime, false).then(result => {
-                        messageContent  = "\u200B<@!" + userID + ">, you are shown as voting within the last 24 hours! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
+                        messageContent  = "\u200B<@!" + userID + ">, you are shown as voting within the last 24 hours! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
                         args = ["error", messageContent];
                         handleCommand(args, message);
                     }).catch((err) => {
@@ -1001,15 +731,15 @@ async function handleCommand(args, message) {
 
                 var messageContent = "\u200BOops... <@!" + userID + ">, DropBot could not access Discord Bot List's vote database.\nPlease try again later.\n";
 
-		sendMessage(messageContent, message.channel);
+        	sendMessage(messageContent, message.channel);
                 
                 return 3;
             });
         } else {
             messageContent = "\u200BVote system temporarily disabled.\n" +
-                "Rate limiting set to minimum of " + VOTE_USER_TIMEOUT_SEC + " second(s).";
-            messageContent += "Voting link : https://discordbots.org/bot/" + DROPBOT_ID + "/vote \n";
-	    sendMessage(messageContent, message.channel);
+                "Rate limiting set to minimum of " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).";
+            messageContent += "Voting link : https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote \n";
+            sendMessage(messageContent, message.channel);
         }
         
         break;
@@ -1017,15 +747,15 @@ async function handleCommand(args, message) {
     case 'm':
     case 'mute':
 
-    	if (dropGuilds[guildID].audioMute) {
+    	if (dbGuilds[guildID].audioMute) {
             messageContent = "\u200BDropBot is already muted.";
 	    message.reply(messageContent);
     	    break;
     	} else {
-            dropGuilds[guildID].audioMute = true;
+            dbGuilds[guildID].audioMute = true;
     	}       
         
-        dbAWS.updateGuildAudioMute(dropGuilds[guildID]).then(dropBotGuild => {
+        dbAWS.updateGuildAudioMute(dbGuilds[guildID]).then(dropBotGuild => {
             messageContent = "\u200BMuted DropBot. Will no longer speak in voice channels.";
 	    message.reply(messageContent);
             console.log(`Successfully updated audioMute for ${message.guild.name}[${guildID}]`);
@@ -1037,15 +767,15 @@ async function handleCommand(args, message) {
     case 'u':        
     case 'unmute':
 
-    	if (dropGuilds[guildID].audioMute) {
-            dropGuilds[guildID].audioMute = false;
+    	if (dbGuilds[guildID].audioMute) {
+            dbGuilds[guildID].audioMute = false;
     	} else {
             messageContent = "\u200BDropBot is not muted.";
 	    message.reply(messageContent);
     	    break;
     	}
 
-        dbAWS.updateGuildAudioMute(dropGuilds[guildID]).then(dropBotGuild => {
+        dbAWS.updateGuildAudioMute(dbGuilds[guildID]).then(dropBotGuild => {
             messageContent = "\u200BAllowing DropBot to speak in voice channels again.";
             message.reply(messageContent);
             console.log(`Successfully updated audioMute for ${message.guild.name}[${guildID}]`);
@@ -1074,9 +804,9 @@ async function handleCommand(args, message) {
             return;
         }
 
-        dropGuilds[guildID].defaultGame = newDefaultGame;
+        dbGuilds[guildID].defaultGame = newDefaultGame;
 
-        dbAWS.updateGuildDefaultGame(dropGuilds[guildID]).then(dropBotGuild => {
+        dbAWS.updateGuildDefaultGame(dbGuilds[guildID]).then(dropBotGuild => {
             let newDefaultGameString = newDefaultGame == "fortnite" ? "Fortnite" : "Apex Legends";
             messageContent = "\u200BChanged default game to " + newDefaultGameString;
             message.reply(messageContent);
@@ -1087,179 +817,89 @@ async function handleCommand(args, message) {
 
         break;
 
-
-    case 'fset':        
-    case 'set':
-
-        var validChange         = true;
-        var setId               = Number(args[0]);
-        var setWeight           = Number(args[1]);
-        var previousWeight      = -1;
-        var previousTotalWeight = dropGuilds[guildID].dropWeightsFN;
-        var nextTotalWeight     = 0;
-
-        messageContent = '';
-
-        if (args.length == 0 || (args.length == 1 && args[0] == "help")) {
-    	    messageContent +=  'Help for changing drop location chance\n';
-            validChange = false;
-            messageContent += '```';
-            messageContent += 'db!set [id] [weight]\n';
-            messageContent += '```';	    
-    	}
-
-        if (validChange && args.length < 2) {
-            messageContent = "Please specify the index and weight.";
-            validChange = false;            
-        }
-        
-        if (validChange && ! (Number.isInteger(setId)) || ! (Number.isInteger(setWeight))) {
-            messageContent += "ERROR: [id] and [weight] arguments must both be numbers.";
-            validChange = false;
-        }
-        
-        if (validChange && setId > (NUM_DROP_LOCATIONS-1) || setId < 0) {
-            messageContent += "ERROR: [id] must be within the range of 0 to " + (NUM_DROP_LOCATIONS-1);
-            validChange = false;
-        }
-        
-        if (validChange && setWeight > MAX_WEIGHT || setWeight < 0) {
-            messageContent += "ERROR: [weight] must be within the range of 0 to " + MAX_WEIGHT;
-            validChange = false;
-        }
-
-        if (validChange && dropGuilds[guildID].dropLocationsFN[setId]['weight'] == setWeight) {
-            messageContent += "ERROR: Weight for " + constants.dropLocationNamesFN[setId] + " is already " + setWeight;
-            validChange = false;
-        }
-
-        if (validChange) {
-            messageContent += "Setting weight for " + constants.dropLocationNamesFN[setId] + " to " + setWeight;
-            dropGuilds[guildID].dropLocationsFN[setId]['weight'] = setWeight;
-
-            previousWeight = Number(dropGuilds[guildID].dropLocationsFN[setId]['weight']);
-            
-            nextTotalWeight = 0;
-            for (var i=0; i < constants.dropLocationNamesFN.length; i++) {
-                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsFN[i]['weight']);
-            }
-            
-            if (nextTotalWeight < 1) {
-                messageContent += "ERROR: All weights must add up to at least 1";
-                dropGuilds[guildID].dropLocationsFN[setId]['weight'] = previousWeight;
-                validChange = false;
-            }
-            
-        } else {
-            
-            for (var i=0; i < constants.dropLocationNamesFN.length; i++) {        
-                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsFN[i]['weight']);
-            }
-
-        }
-
-        dropGuilds[guildID].dropWeightsFN = nextTotalWeight;
-
-	sendMessage(messageContent, message.channel);
-
-        if (validChange) {
-            dbAWS.updateGuildDropsFN(dropGuilds[guildID]).then(dropBotGuild => {
-
-                sendMessage(dropGuilds[guildID].toString(), message.channel, {delay: 200});
-
-            }).catch((e) => {
-                console.error("ERROR updateGuildDropsFN: " + e);
-            });
-        } else {
-	    sendMessage(messageContent, message.channel, {delay: 500});
-        }
-
-        break;
-
     case 'aset':
-
-        var validChange         = true;
+        isFortniteCommand    = false;
+        isFortniteCommandSet = true;
+    case 'fset':
+    case 'set':
+        if (! (isFortniteCommandSet)) isFortniteCommand = true;
+        
         var setId               = Number(args[0]);
         var setWeight           = Number(args[1]);
         var previousWeight      = -1;
-        var previousTotalWeight = dropGuilds[guildID].dropWeightsAL;
         var nextTotalWeight     = 0;
+        var previousTotalWeight = isFortniteCommand ? dbGuilds[guildID].dropWeightsFN   : dbGuilds[guildID].dropWeightsAL;
+        var myDropLocations     = isFortniteCommand ? dbGuilds[guildID].dropLocationsFN : dbGuilds[guildID].dropLocationsAL;
+        var myDropLocationNames = isFortniteCommand ? Constants.dropLocationNamesFN     : Constants.dropLocationNamesAL;
 
         messageContent = '';
 
         if (args.length == 0 || (args.length == 1 && args[0] == "help")) {
-    	    messageContent +=  'Help for changing drop location chance\n';
-            validChange = false;
-            messageContent += '```';
-            messageContent += 'db!set [id] [weight]\n';
-            messageContent += '```';	    
+            sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
+            return;
     	}
 
-        if (validChange && args.length < 2) {
-            messageContent = "Please specify the index and weight.";
-            validChange = false;            
+        if (args.length < 2) {
+            message.reply("USAGE ERROR: Please specify the index and weight.");
+            sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
+            return;
         }
         
-        if (validChange && ! (Number.isInteger(setId)) || ! (Number.isInteger(setWeight))) {
-            messageContent += "ERROR: [id] and [weight] arguments must both be numbers.";
-            validChange = false;
+        if (! (Number.isInteger(setId)) || ! (Number.isInteger(setWeight))) {
+            message.reply("USAGE ERROR: [id] and [weight] arguments must both be numbers.");
+            sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
+            return;
         }
         
-        if (validChange && setId > (NUM_DROP_LOCATIONS-1) || setId < 0) {
-            messageContent += "ERROR: [id] must be within the range of 0 to " + (NUM_DROP_LOCATIONS-1);
-            validChange = false;
+        if (setId > (myDropLocationNames.length-1) || setId < 0) {
+            message.reply("USAGE ERROR: [id] must be within the range of 0 to " + (myDropLocationNames.length-1));
+            sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
+            return;
         }
         
-        if (validChange && setWeight > MAX_WEIGHT || setWeight < 0) {
-            messageContent += "ERROR: [weight] must be within the range of 0 to " + MAX_WEIGHT;
-            validChange = false;
+        if (setWeight > Constants.MAX_WEIGHT || setWeight < 0) {
+            message.reply("USAGE ERROR: [weight] must be within the range of 0 to " + Constants.MAX_WEIGHT);
+            sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
+            return;
         }
 
-        if (validChange && dropGuilds[guildID].dropLocationsAL[setId]['weight'] == setWeight) {
-            messageContent += "ERROR: Weight for " + constants.dropLocationNamesAL[setId] + " is already " + setWeight;
-            validChange = false;
-        }        
-
-        if (validChange) {
-            messageContent += "Setting weight for " + constants.dropLocationNamesAL[setId] + " to " + setWeight;
-            dropGuilds[guildID].dropLocationsAL[setId]['weight'] = setWeight;
-
-            previousWeight = Number(dropGuilds[guildID].dropLocationsAL[setId]['weight']);
-            
-            nextTotalWeight = 0;
-            for (var i=0; i < constants.dropLocationNamesAL.length; i++) {
-                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsAL[i]['weight']);
-            }
-            
-            if (nextTotalWeight < 1) {
-                messageContent += "ERROR: All weights must add up to at least 1";
-                dropGuilds[guildID].dropLocationsAL[setId]['weight'] = previousWeight;
-                validChange = false;
-            }
-            
-        } else {
-            
-            for (var i=0; i < constants.dropLocationNamesAL.length; i++) {        
-                nextTotalWeight += Number(dropGuilds[guildID].dropLocationsAL[i]['weight']);
-            }
-
+        if (myDropLocations[setId]['weight'] == setWeight) {
+            message.reply("USAGE ERROR: Weight for " + myDropLocationNames[setId] + " is already " + setWeight);
+            sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
+            return;
         }
 
-        dropGuilds[guildID].dropWeightsAL = nextTotalWeight;
+        previousWeight = Number(myDropLocations[setId]['weight']);
+
+        messageContent += "Setting weight for " + myDropLocationNames[setId] + " to " + setWeight;
+        myDropLocations[setId]['weight'] = setWeight;
+        
+        nextTotalWeight = 0;
+        for (var i=0; i < myDropLocationNames.length; i++) {
+            nextTotalWeight += Number(myDropLocations[i]['weight']);
+        }
+        
+        if (nextTotalWeight < 1) {
+            myDropLocations[setId]['weight'] = previousWeight; // Revert changed value
+            messageContent += "ERROR: All weights must add up to at least 1";
+            message.reply(messageContent);
+            sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
+            return;
+        }
+
+        dbGuilds[guildID].dropWeightsAL = nextTotalWeight;
 
 	sendMessage(messageContent, message.channel);
 
-        if (validChange) {
-            dbAWS.updateGuildDropsAL(dropGuilds[guildID]).then(dropBotGuild => {
+        dbAWS.updateGuildDropsAL(dbGuilds[guildID]).then(dropBotGuild => {
 
-                sendMessage(dropGuilds[guildID].toString(), message.channel, {delay: 200});
+            var sendMessageContent = isFortniteCommand ? dbGuilds[guildID].fortniteToString() :
+                                                         dbGuilds[guildID].apexToString();
+            sendMessage('```' + sendMessageContent + '```', message.channel, {delay: 200});
 
-            }).catch((e) => {
-                console.error("ERROR updateGuildDropsAL: " + e);
-            });
-        } else {
-	    sendMessage(messageContent, message.channel, {delay: 500});
-        }
+        }).catch((e) => {
+            console.error("ERROR updateGuildDropsAL: " + e);
+        });
         
         break;
         
@@ -1276,8 +916,8 @@ async function handleCommand(args, message) {
         messageContent += "Author           : devshans\n";
         messageContent += "Email            : devshans0@gmail.com\n"
         messageContent += "GitHub           : https://github.com/devshans/DropBot\n";
-        messageContent += "Bot Link         : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
-        messageContent += "Bot Vote Support : https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
+        messageContent += "Bot Link         : https://discordbots.org/bot/" + Constants.DROPBOT_ID + "\n";
+        messageContent += "Bot Vote Support : https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote\n";
         messageContent += "Support Discord  : https://discord.gg/YJWEsvV\n\n";
         messageContent += "```";
 	sendMessage(messageContent, message.channel);
@@ -1288,7 +928,7 @@ async function handleCommand(args, message) {
 
         messageContent = "Retrieving info for this server...";
 	sendMessage(messageContent, message.channel);
-        sendMessage(dropGuilds[guildID].toString(), message.channel);
+        sendMessage(dbGuilds[guildID].toString(), message.channel);
 
         break;
               
@@ -1296,9 +936,9 @@ async function handleCommand(args, message) {
         messageContent = "Resetting all values to their defaults...";
 	sendMessage(messageContent, message.channel);
 
-        dbAWS.resetGuild(dropGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
-            dropGuilds[guildID] = dropBotGuild;
-	    sendMessage(dropGuilds[guildID].toString(), message.channel, {delay: 500});           
+        dbAWS.resetGuild(dbGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
+            dbGuilds[guildID] = dropBotGuild;
+	    sendMessage(dbGuilds[guildID].toString(), message.channel, {delay: 500});           
         }).catch((e) => {
             console.error("ERROR updateGuildDrops: " + e);
         });
@@ -1324,36 +964,21 @@ async function handleCommand(args, message) {
     case '':
     case 'd':
     case 'drop':
-        if (dropGuilds[guildID].defaultGame === undefined || dropGuilds[guildID].defaultGame == null ||
-            dropGuilds[guildID].defaultGame.toLowerCase() == "fortnite") isFortniteCommand = true;
-        else                                                             isFortniteCommand = false;
-
-        getGuildMember(message).then((guildMember) => {
-            playDropLocation(isFortniteCommand, message, guildMember);
-        }).catch((e) => {
-            console.error("ERROR retrieving guild member default:\n" + e);
-        });
-	
-        break;
-        
+        isFortniteCommandSet = true;
+        if (dbGuilds[guildID].defaultGame === undefined || dbGuilds[guildID].defaultGame == null ||
+            dbGuilds[guildID].defaultGame.toLowerCase() == "fortnite") isFortniteCommand = true;
+        else                                                           isFortniteCommand = false;        
     case 'fdrop':
     case 'fort':
     case 'fortnight':
     case 'fortnite':
-        isFortniteCommand = true;
-
-        getGuildMember(message).then((guildMember) => {
-            playDropLocation(isFortniteCommand, message, guildMember);
-        }).catch((e) => {
-            console.error("ERROR retrieving guild member Fortnite:\n" + e);
-        });
-	
-        break;
-        
+        if (! (isFortniteCommandSet)) isFortniteCommand = true;
+        isFortniteCommandSet = true;
     case 'a':
     case 'adrop':
     case 'apex':
-        isFortniteCommand = false;
+        if (! (isFortniteCommandSet)) isFortniteCommand = false;
+        isFortniteCommandSet = true;
 
         getGuildMember(message).then((guildMember) => {
             playDropLocation(isFortniteCommand, message, guildMember);
@@ -1370,13 +995,13 @@ async function handleCommand(args, message) {
     // Will be checked again prior to sending a message,
     //   if they have a non-voter restriction and send a command under the time limit.
     if (VOTE_SYSTEM_ENABLED) {
-        if (dropUserIsVoter[userID]) {
+        if (dbUsers[userID].isVoter) {
 
             dbl.hasVoted(userID).then(voted => {
 
                 if (! (voted) ) {
                     console.log("SPS Has not VOTED: " + userID);
-                    message.reply("Has been over 24 hours since last vote...\nCan vote again at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n");
+                    message.reply("Has been over 24 hours since last vote...\nCan vote again at: https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote\n");
                 }
 
             }).catch((err) => {
@@ -1407,11 +1032,28 @@ async function sendMessage(content, channel, options) {
     }
 }
 
+function getSetCommandUsage(isFortniteCommand, guildID) {
+    var messageContent = '';
+    messageContent += 'Help for changing drop location chance\n';
+    messageContent += '```';
+    if (isFortniteCommand) {
+        messageContent += 'db!set [id] [weight]\n';    
+        messageContent += '     Change the chance of choosing each Fortnite location\n\n';
+        messageContent += dbGuilds[guildID].fortniteToString();
+    } else {
+        messageContent += 'db!aset [id] [weight]\n';    
+        messageContent += '     Change the chance of choosing each Apex Legends location\n\n';
+        messageContent += dbGuilds[guildID].apexToString();
+    }
+    messageContent += '```';
+    return messageContent;
+}
+
 // Create an event listener for messages
 client.on('message', message => {
     
     var userID   = message.author.id;
-    var user     = message.author.username;
+    var userName = message.author.username;
     var userDisc = message.author.discriminator;
 
     var channelID = message.channel.id;
@@ -1421,15 +1063,24 @@ client.on('message', message => {
     var epochTime = message.createdTimestamp;    
 
     var sanitizedMessage = message.content.trim().replace(/ +(?= )/g,'').toLowerCase();
-    var args = sanitizedMessage.slice(prefix.length).split(/ +/);
+    var args = sanitizedMessage.slice(config.prefix.length).split(/ +/);
     
     // Exit if it's DropBot.
-    if (userID == DROPBOT_ID || userID == DEV_DROPBOT_ID) return 0;
+    //   We do not use message.author.bot so that unit testing can be done with bots.
+    if (userID == Constants.DROPBOT_ID || userID == Constants.DEV_DROPBOT_ID) return 0;
+
+    // Special for Official DropBot Support server
+    // Do not want to take DropBot off each channel for visibility.
+    //   Have the moderator bot delegate instructions to move to supported channels.
+    if (message.guild && message.guild.id == Constants.DROPBOT_SERVER_ID) {
+        if (message.channel.id != Constants.DROPBOT_TEST_CHANNEL_ID1 &&
+            message.channel.id != Constants.DROPBOT_TEST_CHANNEL_ID2) return;
+    }    
 
     var isDevUser = (DEVSHANS_ID == userID);
     var maxMessageLength = isDevUser ? 50 : 20;
 
-    if (dropUserBlocked[userID] && !(isDevUser)) return 0;    
+    if ((dbUsers[userID] && dbUsers[userID].blocked) && !(isDevUser)) return 0;
 
     // Alert the user if they enter "!db" as it is a common mistake.
     if (sanitizedMessage.substring(0,3) == "!db") {
@@ -1441,9 +1092,9 @@ client.on('message', message => {
     //   Source: https://github.com/meew0/discord-bot-best-practices
     //
     if (developerMode) { // Developer mode allows us to test with bots. Don't listen in production mode.
-        if (! (sanitizedMessage.startsWith(`${prefix}`))) return;
+        if (! (sanitizedMessage.startsWith(`${config.prefix}`))) return;
     } else {
-        if (! (sanitizedMessage.startsWith(`${prefix}`)) || message.author.bot) return;
+        if (! (sanitizedMessage.startsWith(`${config.prefix}`)) || message.author.bot) return;
     }
 
     // WE DO give an error if there is a space before what could be a valid command.
@@ -1475,7 +1126,7 @@ client.on('message', message => {
     if (message.channel instanceof Discord.DMChannel) {
 
         if (DEBUG_MESSAGE) {
-            console.log("  User    : " + userID + " - " + user + "#" + userDisc);
+            console.log("  User    : " + userID + " - " + userName + "#" + userDisc);
             console.log("  Channel : " + channelID + " - " + channelName);	
             console.log("  Time    : " + dateTime.toISOString());
             console.log("  message : " + message);
@@ -1486,8 +1137,8 @@ client.on('message', message => {
         messageContent += 'Add DropBot to a Discord server and see help by sending a \"db!help\" message in a channel with DropBot active.\n'; 
         messageContent += "Author   : <@" + DEVSHANS_ID + ">\n";
         messageContent += "GitHub   : https://github.com/devshans/DropBot\n";        
-        messageContent += "Bot Link : https://discordbots.org/bot/" + DROPBOT_ID + "\n";
-        messageContent += "Vote     : https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
+        messageContent += "Bot Link : https://discordbots.org/bot/" + Constants.DROPBOT_ID + "\n";
+        messageContent += "Vote     : https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote\n";
         messageContent += 'Discord support server: https://discord.gg/YJWEsvV \n';
                 
         message.reply(messageContent);
@@ -1497,19 +1148,11 @@ client.on('message', message => {
 
     var guildID   = message.guild.id;
     var guildName = message.guild.name;
-
-    // Special for Official DropBot Support server
-    // Do not want to take DropBot off each channel for visibility.
-    //   Have the moderator bot delegate instructions to move to supported channels.
-    if (message.guild.id == DROPBOT_SERVER_ID) {
-        if (message.channel.id != DROPBOT_TEST_CHANNEL_ID1 &&
-            message.channel.id != DROPBOT_TEST_CHANNEL_ID2) return;
-    }
     
     // Main debug code block for application.
     // Logged on every successful message being parsed past the intial sanitation and DM feedback.
     if (DEBUG_MESSAGE) {
-        console.log("  User    : " + userID + " - " + user + "#" + userDisc);
+        console.log("  User    : " + userID + " - " + userName + "#" + userDisc);
         console.log("  Channel : " + channelID + " - " + channelName);	
         console.log("  Guild   : " + guildID + " - " + guildName);	
         console.log("  Time    : " + dateTime.toISOString());
@@ -1526,28 +1169,28 @@ client.on('message', message => {
     }
     
     // First access from a server since reboot or new server.
-    if (dropGuilds[guildID] === undefined || dropGuilds[guildID] == null) {
+    if (dbGuilds[guildID] === undefined || dbGuilds[guildID] == null) {
         if (DEBUG_MESSAGE) console.log("First access from server since at least reboot: ", guildID);
 
         // Assume that database writes will succeed.
         //   If another user comes in before they are done from the same server, we'll trigger the init twice.
-        dropGuilds[guildID] = true;
+        dbGuilds[guildID] = true;
 
-        dropGuilds[guildID] = new DBGuild(guildID, guildName);
+        dbGuilds[guildID] = new DBGuild(guildID, guildName);
         
-        dbAWS.initGuildDatabase(dropGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
+        dbAWS.initGuildDatabase(dbGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
             if (DEBUG_MESSAGE) console.log("initGuildDatabase success.");
-            dropGuilds[guildID] = dropBotGuild;
+            dbGuilds[guildID] = dropBotGuild;
             client.guilds.size++;
             console.log("New total servers: " + client.guilds.size);                    
         }).catch(err => {
             console.error("ERROR initGuildDatabase + " + guildID + ":\n" + err);
-            dropGuilds[guildID] = false; 
+            dbGuilds[guildID] = false; 
         }).then(() => {
 
-            if (dropGuilds[guildID].updateNotice) {
-                dropGuilds[guildID].updateNotice = false;
-                dbAWS.updateGuildUpdateNotice(dropGuilds[guildID]).then(result => {                
+            if (dbGuilds[guildID].updateNotice) {
+                dbGuilds[guildID].updateNotice = false;
+                dbAWS.updateGuildUpdateNotice(dbGuilds[guildID]).then(result => {                
                     setTimeout(function() {
 		        message.channel.send("<@!" + userID + "> - DropBot has been updated to version 8.5! \n" +
 					     "Added ability to change default game for \"db!drop\" and \"db!\" commands.\n" +
@@ -1559,37 +1202,36 @@ client.on('message', message => {
                 });
             }	    
             
-            dbAWS.initGuild(dropGuilds[guildID]).then(dropBotGuild => {
+            dbAWS.initGuild(dbGuilds[guildID]).then(dropBotGuild => {
                 if (DEBUG_MESSAGE) console.log("initGuild " + dropBotGuild.id + " success.");
-		dropGuilds[guildID]= dropBotGuild;
+		dbGuilds[guildID]= dropBotGuild;
 
                 // For the case of using a new server only, we treat the user as new as well.
                 //   If the user is banned, the script will already have exited above.
-                epochTime = dateTime.getTime();
-                dropUserTimeout[userID] = epochTime;
-                dropUserStrikes[userID] = 0;
-                dropUserStrikes[userID] = 0;
-                dropUserBlocked[userID] = false;
-                dropUserWarned[userID]  = false;
-
-                if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
-		    initUser(user, userID, userDisc, epochTime).then(result => {
-                        dropUserInitialized[userID] = true;
+                if (dbUsers[userID] === undefined || dbUsers[userID] == null) {
+                    dbUsers[userID] = new DBUser(userID, userName, userDisc);
+		    dbAWS.initUser(dbUsers[userID]).then(dropBotUser => {
+                        dbUsers[userID] = dropBotUser;
 		        if (DEBUG_DATABASE) console.log("initUser " + userID + " in initGuild " +
                                                         guildID + ": success");                        
-		        //if (DEBUG_DATABASE) console.log(result);
-		    }).catch(err3 => {
+		    }).catch(err => {
 		        console.error("ERROR initUser " + userID + " in initGuild " +
-                                      guildID + ":\n", err3);                        
+                                      guildID + ":\n", err);
 		    });
                 } else {
-		    updateUser(userID, epochTime, false).then(result => {
+                   
+                    epochTime = dateTime.getTime();
+                    dbUsers[userID].timeout = epochTime;
+                    dbUsers[userID].strikes = 0;
+                    dbUsers[userID].blocked = false;
+                    dbUsers[userID].warned  = false;
+                    
+		    dbAWS.updateUser(dbUsers[userID]).then(result => {
 		        if (DEBUG_DATABASE) console.log("updateUser " + userID + " in initGuild " +
                                                         guildID + ": SUCCESS");
-		        //if (DEBUG_DATABASE) console.log(result);
-		    }).catch(err3 => {
+		    }).catch(err => {
 		        console.error("ERROR updateUser " + userID + " in initGuild " +
-                                      guildID + ":\n", err3);
+                                      guildID + ":\n", err);
 		    });                    
                 }
                 
@@ -1600,8 +1242,8 @@ client.on('message', message => {
                 setTimeout(function() {
                     handleCommand(args, message);
                 }, 500);
-            }).catch(err2 => {
-                console.error("ERROR initGuild + " + guildID + ":\n", err2);
+            }).catch(err => {
+                console.error("ERROR initGuild + " + guildID + ":\n", err);
             });    
         });
 
@@ -1612,7 +1254,7 @@ client.on('message', message => {
 
     // This will be triggered the first time a user sends a command since reboot, if it is not a new server.
     // The guild initialization above will also create the user, if necessary, and then send the command and exit.
-    if (dropUserInitialized[userID] === undefined || dropUserInitialized[userID] == false) {
+    if (dbUsers[userID] === undefined || dbUsers[userID] == null) {
 
 	dbAWS.readUser(userID).then(result => {
 
@@ -1620,16 +1262,11 @@ client.on('message', message => {
 		if (DEBUG_MESSAGE) console.log("Detected NEW user sending message in existing server: ", userID);
 
 		epochTime = dateTime.getTime();
+                dbUsers[userID] = new DBUser(userID, userName, userDisc);
 
-		initUser(user, userID, userDisc, epochTime).then(result => {
-		    if (DEBUG_DATABASE) console.log("initUser " + user + "[" + userID + "]success from on.message");
-
-		    dropUserTimeout[userID] = epochTime - 1000;
-		    dropUserStrikes[userID] = 0;
-		    dropUserStrikes[userID] = 0;
-		    dropUserBlocked[userID] = false;
-		    dropUserWarned[userID]  = false;
-
+		dbAWS.initUser(dbUsers[userID]).then(dropBotUser => {
+		    if (DEBUG_DATABASE) console.log("initUser " + userName + "[" + userID + "]success from on.message");
+                    dbUsers[userID] = dropBotUser;
 		    handleCommand(args, message);
 
 		}).catch(err => {
@@ -1639,20 +1276,15 @@ client.on('message', message => {
             } else {
 		if (DEBUG_MESSAGE) console.log("Found existing user since client start: ", userID);
 
-		dropUserTimeout[userID] = epochTime - 1000;
-		dropUserStrikes[userID] = 0;
-		dropUserBlocked[userID] = result.Item.blocked;
-		dropUserIsVoter[userID] = true; // Assume user is voter until check completes after 1st command
-		dropUserWarned[userID]  = false;
-		dropUserInitialized[userID] = true;
-		usersTotalCount++;
-
-		if (dropUserBlocked[userID]) {
+                dbUsers[userID] = new DBUser(userID, userName, userDisc);
+		dbUsers[userID].blocked = result.Item.blocked;
+                
+		if (dbUsers[userID].blocked) {
 		    console.log(`Blocked user ${userName}[${userID}] attempted to use DropBot`);
 		    return;
 		}
 		
-                updateUser(userID, epochTime, false).then(result => {
+                dbAWS.updateUser(dbUsers[userID]).then(result => {
                     handleCommand(args, message);
                 }).catch((err) => {
                     console.error("ERROR updateUser command update: " + err);
@@ -1667,13 +1299,13 @@ client.on('message', message => {
     }
 
     if (STRIKE_SYSTEM_ENABLED) {
-	if (dropUserBlocked[userID] || dropUserStrikes[userID] == USER_MAX_STRIKES) {
+	if (dbUsers[userID].blocked || dbUsers[userID].strikes == Constants.USER_MAX_STRIKES) {
 
-            if (dropUserBlocked[userID] == false) {
-		dropUserBlocked[userID]  = true;
-		updateUser(userID, epochTime, true);
+            if (dbUsers[userID].blocked == false) {
+		dbUsers[userID].blocked  = true;
+		dbAWS.updateUser(dbUsers[userID]); 
             }
-            args = ["error", "Too many strikes [" + USER_MAX_STRIKES + "].\n" + "<@!" + userID + "> blocked due to rate limiting.\n" +
+            args = ["error", "Too many strikes [" + Constants.USER_MAX_STRIKES + "].\n" + "<@!" + userID + "> blocked due to rate limiting.\n" +
 		    "Please wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
             console.log("BLOCKED: User - " + user + "[" + userID + "] due to max strikes of rate limiting.");
             handleCommand(args, message);
@@ -1684,10 +1316,11 @@ client.on('message', message => {
     // If a user has already been blocked in the database, we don't care about the strike system being enabled.
     //   It is possible they were blocked for another reason.
     else { // if (! (STRIKE_SYSTEM_ENABLED))
-        if (dropUserBlocked[userID]) {
+
+        if (dbUsers[userID].blocked) {
             args = ["error", "<@!" + userID + "> blocked due to previous violations.\n" +
 		    "Please contact developer devshans0@gmail.com if you think this was in error."];
-            console.log("BLOCKED: User - " + user + "[" + userID + "] tried to access without strike system enabled.");
+            console.log("BLOCKED: User - " + userName + "[" + userID + "] tried to access without strike system enabled.");
             handleCommand(args, message);
             return 3;
         }
@@ -1699,11 +1332,11 @@ client.on('message', message => {
             return 0;
         }
     } else {
-        dropUserIsVoter[userID] = true;
+        dbUsers[userID].isVoter = true;
     }
 
     // The fun part... Handling rate limiting and vote status for repeated users.
-    var timeout_sec = dropUserIsVoter[userID] ? VOTE_USER_TIMEOUT_SEC : NO_VOTE_USER_TIMEOUT_SEC;
+    var timeout_sec = dbUsers[userID].isVoter ? Constants.VOTE_USER_TIMEOUT_SEC : Constants.NO_VOTE_USER_TIMEOUT_SEC;
 
     // Use minimum rate limiting for realtime commands.
     if (args[0] == 'stop') timeout_sec = 1; 
@@ -1712,15 +1345,15 @@ client.on('message', message => {
     if (args[0] == 'h')    timeout_sec = 1;
     if (args[0] == 'help') timeout_sec = 1;
 
-    var timeSinceLastCommand = Math.ceil((epochTime-dropUserTimeout[userID])/1000);
+    var timeSinceLastCommand = Math.ceil((epochTime-dbUsers[userID].timeout)/1000);
     if (DEBUG_MESSAGE) console.log("User " + userID + " time since last command: " + timeSinceLastCommand);
     
     if (timeSinceLastCommand < timeout_sec && !(isDevUser)) {
 
         var messageContent = "";
-        dropUserStrikes[userID] = dropUserStrikes[userID]+1;
+        dbUsers[userID].strikes = dbUsers[userID].strikes+1;
         
-        if (! (dropUserIsVoter[userID])) {
+        if (! (dbUsers[userID].isVoter)) {
 
             dbl.hasVoted(userID).then(voted => {
 
@@ -1728,14 +1361,14 @@ client.on('message', message => {
 
                     if (DEBUG_MESSAGE) console.log("Non-vote restricted " + timeSinceLastCommand + " seconds for user: " + userID);
 		    
-		    if (! (dropUserWarned[userID])) {
+		    if (! (dbUsers[userID].warned)) {
 
 			var sendWarnMessage = "\u200B";
-			sendWarnMessage +"<@!" + userID + "> is temporarily rate limited to using one command every " + NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
+			sendWarnMessage +"<@!" + userID + "> is temporarily rate limited to using one command every " + Constants.NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
 			sendWarnMessage += "Due to server constraints, users must be verified to use DropBot within the last 24 hours.\n";
-			sendWarnMessage += "To lessen restriction to " + VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + DROPBOT_ID + "/vote\n";
-			if (STRIKE_SYSTEM_ENABLED) sendWarnMessage += "Strike " + dropUserStrikes[userID] + "/" + USER_MAX_STRIKES;
-			dropUserWarned[userID] = true;
+			sendWarnMessage += "To lessen restriction to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote\n";
+			if (STRIKE_SYSTEM_ENABLED) sendWarnMessage += "Strike " + dbUsers[userID].strikes + "/" + Constants.USER_MAX_STRIKES;
+			dbUsers[userID].warned = true;
 
                         sendMessage(sendWarnMessage, message.channel, {delay: 500});
 
@@ -1748,10 +1381,9 @@ client.on('message', message => {
                     handleCommand(args, message);
                     return 1;
                 } else {
-		    dropUserIsVoter[userID] = true;
-		    dropUserWarned[userID]  = false; 
+		    dbUsers[userID].isVoter = true;
                     if (DEBUG_VOTE) console.log("***** VOTE before handleCommand changed to " + voted + " for userID " + userID);
-                    messageContent  = "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
+                    messageContent  = "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
                     args = ["error", messageContent];
                     handleCommand(args, message);		    
 		    return 0;
@@ -1772,13 +1404,13 @@ client.on('message', message => {
 
     // Update last access time and related stats if command succeeded
     epochTime = dateTime.getTime();
-    dropUserStrikes[userID] = 0;
-    dropUserTimeout[userID] = epochTime;
-    dropUserStrikes[userID] = 0;
-    dropUserBlocked[userID] = false;
-    dropUserWarned[userID]  = false;
+    dbUsers[userID].strikes = 0;
+    dbUsers[userID].timeout = epochTime;
+    dbUsers[userID].blocked = false;
+    dbUsers[userID].warned  = false;
 
-    updateUser(userID, epochTime, false).then(result => {
+    dbAWS.updateUser(dbUsers[userID]).then(dropBotUser => {
+        dbUsers[userID] = dropBotUser;
         setTimeout(function() {                
             handleCommand(args, message);
         }, 100);

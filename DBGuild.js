@@ -1,4 +1,4 @@
-var constants = require('./constants.js');
+var Constants = require('./Constants.js');
 
 class DBGuild {
 
@@ -15,11 +15,11 @@ class DBGuild {
     }
 
     print() {
-	console.log(`Server class ${this.name}[${this.id}]`);
+	console.log(`DBGuild class ${this.name}[${this.id}]`);
     }
 
     headerString() {
-        return ("Discord Server Settings\n"           + 
+        return ("Discord Guild Settings\n"           + 
                 "---------------------------------\n" + 
 	        "Server ID    : " + this.id           + "\n" + 
 	        "Server Name  : " + this.name         + "\n" + 
@@ -41,7 +41,7 @@ class DBGuild {
 
             var dropLocationID = i;
             var dropLocationWeight = this.dropLocationsFN[i]['weight'];
-            var dropLocationName   = constants.dropLocationNamesFN[dropLocationID];
+            var dropLocationName   = Constants.dropLocationNamesFN[dropLocationID];
             var dropChance         = this.dropLocationsFN[dropLocationID]['weight'] / this.dropWeightsFN * 100;
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
 
@@ -85,7 +85,7 @@ class DBGuild {
 
             var dropLocationID = i;
             var dropLocationWeight = this.dropLocationsAL[i]['weight'];
-            var dropLocationName   = constants.dropLocationNamesAL[dropLocationID];
+            var dropLocationName   = Constants.dropLocationNamesAL[dropLocationID];
             var dropChance         = this.dropLocationsAL[dropLocationID]['weight'] / this.dropWeightsAL * 100;
             if (dropChance != 100) dropChance = dropChance.toPrecision(2);
 
@@ -113,20 +113,29 @@ class DBGuild {
                 "Total weight: " + this.dropWeightsAL + "\n\n"
                );
         
-    }    
+    }
+
+    fortniteToString() {
+        return (this.fortniteHeader()  +
+                this.fortniteWeights() +
+                this.fortniteFooter()
+               );
+    }
+
+    apexToString() {
+        return (this.apexHeader()  +
+                this.apexWeights() +
+                this.apexFooter()
+               );
+    }   
     
     toString() {
 
         var messageContent = "```";
 
         messageContent += this.headerString();
-        messageContent += this.fortniteHeader();
-        messageContent += this.fortniteWeights();
-        messageContent += this.fortniteFooter();
-        messageContent += this.apexHeader();
-        messageContent += this.apexWeights();
-        messageContent += this.apexFooter();
-
+        messageContent += this.fortniteToString();
+        messageContent += this.apexToString();
         
         messageContent += "```";
 
