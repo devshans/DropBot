@@ -1,3 +1,18 @@
+/*
+    @document   : Constants.js
+    @author     : devshans
+    @copyright  : 2019, devshans
+    @license    : The MIT License (MIT) - see LICENSE
+    @repository : https://github.com/devshans/DropBot
+*/
+
+// Intro sound file list
+const dropIntros = [
+     'intro.wav'
+    ,'intro2.wav'
+    ,'intro3.wav'
+];
+
 // Fortnite specific stuff
 var dropLocationNamesFN = [
     "Dusty Divot"
@@ -45,6 +60,8 @@ var dropLocationNamesAL = [
 ];
 
 module.exports = {
+    
+    dropIntros          : dropIntros,
     dropLocationNamesFN : dropLocationNamesFN,
     dropLocationNamesAL : dropLocationNamesAL,
 

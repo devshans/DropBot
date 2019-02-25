@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 8.8.0
+    @version    : 8.9.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -16,11 +16,11 @@
     Add bot to server with:
         https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&permissions=0
 
-    Links  * Epic Games : https://www.epicgames.com
-           * Fortnite   : https://www.epicgames.com/fortnite/en-US/home
-	   * Locations  : https://fortnite.gamepedia.com/Battle_Royale_Map
-           * Discord    : https://discordapp.com
-	   * discord.js : https://discord.js.org
+    Links  * Fortnite     : https://www.epicgames.com/fortnite/en-US/home
+	   * Locations    : https://fortnite.gamepedia.com/Battle_Royale_Map
+           * Apex Legends : https://www.ea.com/games/apex-legends
+           * Discord      : https://discordapp.com
+	   * discord.js   : https://discord.js.org
 */
 
 var DEBUG_MESSAGE  = true;
@@ -32,51 +32,50 @@ var DEBUG_VOTE     = true;
 var STRIKE_SYSTEM_ENABLED = false;
 var VOTE_SYSTEM_ENABLED   = false;
 
-const fs      = require('fs');
-const rwc     = require('random-weighted-choice');
-const date    = require('date-and-time');
+// Node Modules
+const fs        = require('fs');
+const rwc       = require('random-weighted-choice');
+const date      = require('date-and-time');
 
-const Discord = require('discord.js');
-const AWS     = require("aws-sdk");
-const DBL     = require("dblapi.js");
+// Discord Modules
+const Discord   = require('discord.js');
+const AWS       = require("aws-sdk");
+const DBL       = require("dblapi.js");
 
+// DropBot Modules
 const DBGuild   = require('./DBGuild.js');
 const DBUser    = require('./DBUser.js');
 const Constants = require('./Constants.js');
+const config    = require('./config.json');
 
-const config = require('./config.json');
-
-// Args are sent as strings. Need to parse boolean as string.
+// Parse strings sent from ShardingManager
+//   Args are sent as strings. Need to parse boolean as string.
 const developerModeArg = process.argv[2];
 if (developerModeArg == "true") developerMode = true;
 else                            developerMode = false;
 if (developerMode) console.log("Launching DropBot-dev.js in DEVELOPER mode.");
 else               console.log("** Launching DropBot.js in PRODUCTION mode. **"); 
 
+// DropBot Database Module
 const dbAWS = developerMode ? require('./db-dev.js') : require('./db.js');
 
+// See if we have any users with developer option privileges.
+//   Currently only supports 1 user.
 var DEVSHANS_ID = -1;
-
 const devFilename = "dev.json";
 fs.readFile(devFilename, 'utf8', function(err, data) {
     if (err) {
-        console.log("No " + devFilename + " file for authentication.");
-        return 1;
+        console.error("No " + devFilename + " file for authentication.");
+        return;
     }
     var devJson = JSON.parse(data);
-    console.log("Set DEVSHANS_ID to: ", devJson.uid);
+    console.log("Setting DEVSHANS_ID to: ", devJson.uid);
     DEVSHANS_ID = devJson.uid;
 });
 
 // Database status in memory
 var dbGuilds = [];
 var dbUsers  = [];
-
-const dropIntros = [
-     'intro.wav'
-    ,'intro2.wav'
-    ,'intro3.wav'
-];
 
 const client  = new Discord.Client();
 const shardID = client.shard === null ? -1 : client.shard.id;
@@ -94,33 +93,45 @@ dbAWS.initDefaultWeightsFN().then((result) => {
 
         // Log our bot in using the token from https://discordapp.com/developers/applications/me
         client.login(client.token);
-    });    
+    }).catch((e) => {
+        console.error("ERROR initDefaultWeightsAL:\n" + e);
+    });
+}).catch((e) => {
+    console.error("ERROR initDefaultWeightsFN:\n" + e);
 });
+
+// ------------------------------------------------------------------------------
+// DiscordBotList API
+//   https://discordbots.org/api/docs#jslib
+//   https://github.com/DiscordBotList/dblapi.js
+// ------------------------------------------------------------------------------
+
+var dbl;
 
 // Set up DBL even in developerMode to use the real DropBot auth.token to check stats.
 //   Do not set a client, webhooks, or update serverCount.
 // Likewise, only create 1 instance for shard ID 0 so that we aren't running multiple servers, etc.
 if (developerMode || shardID != 0) {
 
-    const dbl = new DBL(config.dblToken);
+    dbl = new DBL(config.dblToken);
 
 } else { // shardID == 0
 
     // Express server for webhooks
     const express = require('express');
-    const http = require('http');
-
-    const app = express();
-    const server = http.createServer(app);
+    const http    = require('http');
+    const app     = express();
+    const server  = http.createServer(app);
 
     // DiscordBotList API
+    dbl = new DBL(config.dblToken, { webhookAuth: config.webhookAuth, webhookServer: server, webhookPort: config.webhookPort });
 
-    const dbl = new DBL(config.dblToken, { webhookAuth: config.webhookAuth, webhookServer: server, webhookPort: config.webhookPort });
-
+    // Emitted when the webhook is ready to listen.
     dbl.webhook.on('ready', hook => {
         console.log(`Webhook running at http://${hook.hostname}:${hook.port}${hook.path}`);
     });
 
+    // Emitted when the webhook has received a vote.
     dbl.webhook.on('vote', vote => {
         client.fetchUser(vote.user).then(user => {
 	    console.log("User " + user.username + ` [${vote.user}] just voted!`);
@@ -128,73 +139,19 @@ if (developerMode || shardID != 0) {
     });
 
     server.listen(config.webhookPort, () => {
-        console.log('Listening on port #' + config.webhookPort);
+        console.log('Webhook server listening on port #' + config.webhookPort);
     });
     
 }
+if (dbl === undefined || dbl == null) console.error("Failed to initialize DBL API.");
 
-/**
- * The ready event is vital, it means that only _after_ this will your bot start reacting to information
- * received from Discord
- */
-client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}`);
-
-    // Only need to set client activity once
-    client.user.setActivity(`\"db!help\"`, { type: 'LISTENING' });
-    
-    // Send client.guilds.size to DBL at startup and then every 30 minutes.
-    if (! (developerMode) && client.user.id == Constants.DROPBOT_ID) {
-        setTimeout(function() {
-            dblPostStats(); 
-            setInterval(() => {
-                dblPostStats();
-            }, 1800000);
-        }, (1000*shardID));
-    }
-
-    console.log(`DropBot shard ${client.shard.id} listening on ${client.guilds.size} servers for commands.`);
-    
-});
-
-client.on('error', error => {
-    console.log("ERROR CLIENT: " + error);
-
-    for (var v in client.voiceConnections) {
-        console.log("v: " + v);
-        console.log(client.voiceConnections.get(v));
-        client.voiceConnections.get(v).disconnect();
-    }
-    
-});
-
-client.on('disconnect', event => {
-    console.log(`ERROR: Disconnected from Discord.\n\tError code: ${event.code}. Retrying...`);
-    client.login(client.token);
-});
-
-// This event triggers when the bot joins a guild.
-client.on("guildCreate", guild => {
-
-  console.log(`New guild joined: ${guild.name} (id: ${guild.id}). This guild has ${guild.memberCount} members!`);
-  //client.user.setActivity(`Serving ${client.guilds.size} servers`);
-});
-
-// This event triggers when the bot is removed from a guild.
-client.on("guildDelete", guild => {
-  console.log(`I have been removed from: ${guild.name} (id: ${guild.id})`);
-});
-
+// Post stats to Discord Bot List
 function dblPostStats() {
 
-    let guildsSize = client.guilds.size;
-
-    console.log("Shards: " + shardID + " - " + client.shard.count);
-
     dbl.postStats(client.guilds.size, shardID, client.shard.count).then(() => {
-        console.log('*** DBL: SUCCESS sending guildsSize to Discord Bot List - ' + guildsSize);
+        console.log(`[DBL]#${shardID}: SUCCESS sending guildsSize to Discord Bot List - ${client.guilds.size}`);
     }).catch(err => {
-        console.log("*** DBL WARNING: Could not access dbl.postStats database");
+        console.log(`[DBL]#${shardID}: WARNING: Could not access Discord Bot List database`);
     });
 
     client.shard.fetchClientValues('guilds.size')
@@ -205,6 +162,68 @@ function dblPostStats() {
 
 }
 
+// ------------------------------------------------------------------------------
+// Discord.Client Event handling
+// ------------------------------------------------------------------------------
+
+// Emitted when the client becomes ready to start working.
+client.on('ready', () => {
+    console.log(`Logged in as ${client.user.tag}`);
+
+    // Only need to set client activity once
+    client.user.setActivity(`\"db!help\"`, { type: 'LISTENING' });
+    
+    // Send client.guilds.size to DBL at startup and then every 30 minutes.
+    //   Offset by 5 seconds for each shard
+    if (! (developerMode) && client.user.id == Constants.DROPBOT_ID) {
+        setTimeout(function() {
+            dblPostStats(); 
+            setInterval(() => {
+                dblPostStats();
+            }, 1800000);
+        }, (5000*shardID));
+    }
+
+    console.log(`DropBot shard ${client.shard.id} listening on ${client.guilds.size} servers for commands.`);
+    
+});
+
+// Emitted whenever the client's WebSocket encounters a connection error.
+client.on('error', error => {
+    console.error(`ERROR CLIENT:\n ${error.name} = ${error.message}`);
+
+    for (var v in client.voiceConnections) {
+        console.log("Disconnecting from client.voiceConnections: " + v);
+        console.log(client.voiceConnections.get(v));
+        client.voiceConnections.get(v).disconnect();
+    }
+    
+});
+
+// Emitted when the client's WebSocket disconnects and will no longer attempt to reconnect.
+client.on('disconnect', event => {
+    console.error(`ERROR: Disconnected from Discord.\n\tError code: ${event.code}. Retrying...`);
+    client.login(client.token);
+});
+
+// This event triggers when the bot joins a guild.
+//   We will not add this to the database until a command has been sent.
+client.on("guildCreate", guild => {
+    console.log(`New guild joined: ${guild.name}[${guild.id}] with ${guild.memberCount} members.`);
+    client.shard.fetchClientValues('guilds.size')
+        .then(results => {
+            console.log(`New total guilds = ${results.reduce((prev, val) => prev + val, 0)}`);
+        })
+        .catch(console.error);
+});
+
+// This event triggers when the bot is removed from a guild.
+client.on("guildDelete", guild => {
+  console.log(`DropBot removed from: ${guild.name}[${guild.id}]`);
+});
+
+// Discord.js specifies that servers with less than 250 members won't need to use fetchMember(s) functions.
+//   Have seen in rare cases that a manual look-up is necessary in larger guilds.
 async function getGuildMember(message) {
 
     return new Promise(function(resolve, reject) {
@@ -227,6 +246,8 @@ async function getGuildMember(message) {
         
 }
 
+// Join the voice channel of the member who triggered the command and
+//   play audio to announce drop location.
 async function playDropLocation(isFortnite, message, guildMember) {
 
     let guildID = message.guild.id;
@@ -235,7 +256,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
     if (dropLocationID == null) {
         console.error("ERROR: Could not select a drop location.");
         messageContent = "ERROR: Could not select a drop location. Try adjusting weights with \"db!set ...\" command.";
-        sendMessage(messageContent, message.channel);        
+        message.reply(messageContent);
         return;
     }
 
@@ -294,19 +315,22 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
     } else {
 
-        const introFile = '/home/ec2-user/sfx_droplocations/' + dropIntros[Math.floor(Math.random()*dropIntros.length)];
+        const introFile = config.sfxPrefixIntro + Constants.dropIntros[Math.floor(Math.random()*Constants.dropIntros.length)];
         if (!fs.existsSync(introFile)) {
             console.error("Couldn't find introFile: " + introFile);
-            return 1;
+            return;
         }
 	
         const sfxFile = isFortnite ?
-              '/home/ec2-user/sfx_droplocations/'    + dropLocation.split(' ').join('_').toLowerCase() + '.wav' :
-              '/home/ec2-user/sfx_droplocations_al/' + dropLocation.split(' ').join('_').toLowerCase() + '.wav';              
+              config.sfxPrefixFN + dropLocation.split(' ').join('_').toLowerCase() + '.wav' :
+              config.sfxPrefixAL + dropLocation.split(' ').join('_').toLowerCase() + '.wav';              
         
         if (!fs.existsSync(sfxFile)) {
-    	    messageContent = 'Oops... Tried to drop ' + dropLocation + ' but our audio file doesn\'t exist.';
-            sendMessage(messageContent, message.channel);
+            console.error("Could not access sfxFile: " + sfxFile);
+    	    messageContent = 'Oops... Tried to drop ' + dropLocation +
+                ' but having trouble accessing the audio file.\n' +
+                'This has been reported to the developer. If problems persist, mute voice activity with "db!mute"';
+            message.reply(messageContent);
             return;
         }
 
@@ -316,51 +340,78 @@ async function playDropLocation(isFortnite, message, guildMember) {
             // Check permissions to join voice channel and play audio.
             // Send message on text channel to author if not.
             // https://discordapp.com/developers/docs/topics/permissions
-            if (! (guildMember.voiceChannel.permissionsFor(message.guild.me).has("CONNECT", true) &&
+            if (! (guildMember.voiceChannel.joinable) ||
+                ! (guildMember.voiceChannel.permissionsFor(message.guild.me).has("CONNECT", true) &&
                    guildMember.voiceChannel.permissionsFor(message.guild.me).has("SPEAK", true))) {
 
-                console.log("Voice channel permissions error for: " + guildID);
+                console.log("Alerted user of voice channel permissions error for: " + guildID);
                 
                 message.reply("This channel does not have the necessary permissions for DropBot to speak on voice channel.\n" +
                               "DropBot needs voice channel permissions for CONNECT and SPEAK.\n" +
                               "Please change permissions or disable voice with \"db!mute\"");
                 return;
             }
-            
+
+            if (guildMember.voiceChannel.full) {
+                console.log("Alerted user of voice channel full for: " + guildID);
+                message.reply("Cannot play audio. Your current voice channel is full." +
+                              "Please join a channel with open spots or disable voice with \"db!mute\"");
+                return;
+            }
+
+            // Attempt to join the member's voice channel.
             guildMember.voiceChannel.join().then(connection => { // Connection is an instance of VoiceConnection       	
 
-        	if (DEBUG_COMMAND) console.log('Talking on channel : ' + guildMember.voiceChannel.name + " [" + guildMember.voiceChannel.id + "]");
+        	if (DEBUG_COMMAND) console.log(`Talking on channel : ${guildMember.voiceChannel.name}[${guildMember.voiceChannel.id}]`);
 
-                connection.on("error", e => {
-                    console.log("WARNING connection playFile intro: " + e);
+                // Emitted whenever the connection encounters an error.
+                connection.on("error", error => {
+                    console.error("ERROR connection playFile intro:\n" + error);
                     connection.disconnect();
 		    connection.channel.leave();
                     return;
         	});	
 
+                // Emitted when we fail to initiate a voice connection.
+                connection.on("failed", error => {
+                    console.error("ERROR connection playFile intro:\n" + error);
+                    return;
+        	});	
+                
 		// playStream() is less efficient than using playFile() but it will cut off the end of the audio.
-                const dispatcher = connection.playStream(fs.createReadStream(introFile));
+                const dispatcher = connection.playStream(fs.createReadStream(introFile)); // StreamDispatcher
 
+                // Emitted once the dispatcher ends.
                 dispatcher.on('end', () => {
 
-                    connection.on("error", e => {
-                        console.log("WARNING connection 2 playFile intro: " + e);
+                    // Emitted whenever the connection encounters an error.
+                    connection.on("error", error => {
+                        console.error("ERROR connection 2 playFile intro:\n" + error);
                         connection.disconnect();
 		        connection.channel.leave();
+                        return;
+        	    });
+
+                    // Emitted when we fail to initiate a voice connection.
+                    connection.on("failed", error => {
+                        console.error("ERROR connection playFile intro:\n" + error);
                         return;
         	    });	
                     
                     sendMessage(dropLocationMessage, message.channel, {delay: 1000});
 
+                    // Create second dispatcher for playing the location sfxFile
 		    const dispatcher2 = connection.playStream(fs.createReadStream(sfxFile));
 
+                    // Emitted once the dispatcher ends.
                     dispatcher2.on('end', () => {
                         connection.disconnect();
 		        connection.channel.leave();
                     });
 
-                    dispatcher2.on("error", e => {
-        	        console.log("WARNING dispatcher2 playFile location: " + e);
+                    // Emitted when we fail to initiate a voice connection.
+                    dispatcher2.on("error", error => {
+        	        console.log("ERROR dispatcher2 playFile location:\n" + error);
                         connection.disconnect();
 		        connection.channel.leave();
                         return;
@@ -368,13 +419,16 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
                 });
 
-                dispatcher.on("error", e => {
-                    console.log("WARNING dispatcher playFile intro: " + e);
+                // Emitted when we fail to initiate a voice connection.
+                dispatcher.on("error", error => {
+                    console.error("ERROR dispatcher playFile intro:\n" + error);
                     connection.disconnect();
-		    connection.channel.leave();        	    
+		    connection.channel.leave();    	    
         	});
                 	
-            }).catch(console.log);
+            }).catch((error) => {
+                console.error(`ERROR joining voiceChannel : ${guildMember.voiceChannel.name}[${guildMember.voiceChannel.id}]\n${error}`);
+            });
         	
         } else {
 
@@ -389,11 +443,14 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
     } // !(serverAudioMute)
 
-    return 0 ;
+    return;
 }
 
-
-
+// ------------------------------------------------------------------------------
+// handleCommand()
+// Main function for handling all commands that are filtered from the client
+//   'message' event handler.
+// ------------------------------------------------------------------------------
 async function handleCommand(args, message) {
 
     var userID    = message.author.id;
@@ -542,7 +599,7 @@ async function handleCommand(args, message) {
                     var voter = votes[v];
                     console.log("Voter: " + voter.username + "#" + voter.discriminator + " [" + voter.id + "]");
                 }
-            });
+            }).catch(console.error);
             break;
 
         case 'getstats':
@@ -550,7 +607,7 @@ async function handleCommand(args, message) {
 		var shards = stats.shards ? 1 : stats.shards;
 		messageContent = `\`\`\`Servers - ${stats.server_count}\nShards  - ${shards}\`\`\``;
 		sendMessage(messageContent, message.channel);
-	    });
+	    }).catch(console.error);
             break;
 
         case 'members':
@@ -582,7 +639,7 @@ async function handleCommand(args, message) {
                     let username = `${r.user.username}#${r.user.discriminator}`;
                     console.log(`${username} [${r.user.id}]`);
                 });
-            });
+            }).catch(console.error);
 
             
             break;
@@ -614,7 +671,7 @@ async function handleCommand(args, message) {
                 
 	    }).catch((err) => {
                 var messageContent = "Oops... DropBot could not access dbl.hasVoted database for userID: " + userID + "\n" +  err;
-                console.log(messageContent);
+                console.log("WARNING: " + messageContent);
 		sendMessage(messageContent, message.channel, {delay: 200});
 	    });
 	    
@@ -668,20 +725,6 @@ async function handleCommand(args, message) {
         message.channel.send(config.donateURL);
         break;
         
-    // Only intended to be used by private error handling
-    case 'error':
-
-        if (args.length < 1) {
-            messageContent = "\u200BUnhandled error.";
-	    sendMessage(messageContent, message.channel);
-            break;
-        }
-
-	messageContent = args[0];
-	
-	sendMessage(messageContent, message.channel);
-        break;
-
     case 'v':
     case 'vote':
         if (VOTE_SYSTEM_ENABLED) {
@@ -692,20 +735,19 @@ async function handleCommand(args, message) {
                 if (! (voted)) {
                     dropUserIsVoter[userID] = false;
                     if (dropUserWarned[userID]) {
-                        messageContent  = "\u200B<@!" + userID + ">, you are not shown as having voted in the last 24 hours.\n";
+                        messageContent  = "<@!" + userID + ">, you are not shown as having voted in the last 24 hours.\n";
                         messageContent += "If you just voted, wait about a minute or 2 for it to process.\n";
                         messageContent += "You can run \"db!vote\" again without restriction to check vote status.\n";
                     } else {
                         dropUserWarned[userID] = true;
-                        messageContent  = "\u200B<@!" + userID + "> has NOT yet voted in the last 24 hours.\n";
+                        messageContent  = "<@!" + userID + "> has NOT yet voted in the last 24 hours.\n";
                         messageContent += "If you just voted, wait about a minute or 2 for it to process.\n";
                         messageContent += "You are rate limited to using one command every " + Constants.NO_VOTE_USER_TIMEOUT_SEC + " seconds.\n";
     		        messageContent += "To lessen restriction to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s), simply verify user by voting for DropBot at: https://discordbots.org/bot/" + Constants.DROPBOT_ID + "/vote\n";
                         messageContent += "You may check if your vote has been processed immediately and without penalty with \"db!vote\"";
                     }
-                    args = ["error", messageContent];
-                    handleCommand(args, message);
-                    return 1;
+                    sendMessage(messageContent, message.channel);
+                    return;
                 } else {
     		    dropUserIsVoter[userID] = true;
     		    dropUserWarned[userID]  = false;
@@ -718,22 +760,21 @@ async function handleCommand(args, message) {
                     dropUserWarned[userID]  = false;
 
                     updateUser(userID, epochTime, false).then(result => {
-                        messageContent  = "\u200B<@!" + userID + ">, you are shown as voting within the last 24 hours! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
-                        args = ["error", messageContent];
-                        handleCommand(args, message);
+                        message.reply("You are shown as voting within the last 24 hours! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n");
                     }).catch((err) => {
                         console.error("ERROR vote command update: " + err);
                     });
                     
-    		    return 0;
+    		    return;
     	        }
             }).catch((err) => {
 
-                var messageContent = "\u200BOops... <@!" + userID + ">, DropBot could not access Discord Bot List's vote database.\nPlease try again later.\n";
-
+                console.log("WARNING: Could not access dbl.hasVoted database for userID: " + userID + "\n" +  err);
+                
+                var messageContent = "\u200BOops... <@!" + userID + ">, DropBot could not access Discord Bot List's vote database.\nPlease try again later.\n";                
         	sendMessage(messageContent, message.channel);
                 
-                return 3;
+                return;
             });
         } else {
             messageContent = "\u200BVote system temporarily disabled.\n" +
@@ -834,41 +875,38 @@ async function handleCommand(args, message) {
 
         messageContent = '';
 
+        // Sanitize 'set' command usage. Send message and exit if incorrect.
         if (args.length == 0 || (args.length == 1 && args[0] == "help")) {
             sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
             return;
     	}
-
         if (args.length < 2) {
             message.reply("USAGE ERROR: Please specify the index and weight.");
             sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
             return;
-        }
-        
+        }       
         if (! (Number.isInteger(setId)) || ! (Number.isInteger(setWeight))) {
             message.reply("USAGE ERROR: [id] and [weight] arguments must both be numbers.");
             sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
             return;
-        }
-        
+        }       
         if (setId > (myDropLocationNames.length-1) || setId < 0) {
             message.reply("USAGE ERROR: [id] must be within the range of 0 to " + (myDropLocationNames.length-1));
             sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
             return;
-        }
-        
+        }        
         if (setWeight > Constants.MAX_WEIGHT || setWeight < 0) {
             message.reply("USAGE ERROR: [weight] must be within the range of 0 to " + Constants.MAX_WEIGHT);
             sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
             return;
         }
-
         if (myDropLocations[setId]['weight'] == setWeight) {
             message.reply("USAGE ERROR: Weight for " + myDropLocationNames[setId] + " is already " + setWeight);
             sendMessage(getSetCommandUsage(isFortniteCommand, guildID), message.channel, {delay: 200});
             return;
         }
 
+        // Usage is correct... Continue.
         previousWeight = Number(myDropLocations[setId]['weight']);
 
         messageContent += "Setting weight for " + myDropLocationNames[setId] + " to " + setWeight;
@@ -1006,16 +1044,17 @@ async function handleCommand(args, message) {
 
             }).catch((err) => {
                 console.log("WARNING: Could not access dbl.hasVoted database for userID: " + userID + "\n" +  err);
-                return 3;
+                return;
             });
 
         }
     } // (VOTE_SYSTEM_ENABLED)
 
-    return 1;
+    return;
 }
 
-
+// Wrapper send message function to prefix messages with a 0 width space
+//   and optionally add delay.
 async function sendMessage(content, channel, options) {
 
     var delay = 0;
@@ -1032,6 +1071,7 @@ async function sendMessage(content, channel, options) {
     }
 }
 
+// Common usage help for 'set' command if syntax was entered incorrectly.
 function getSetCommandUsage(isFortniteCommand, guildID) {
     var messageContent = '';
     messageContent += 'Help for changing drop location chance\n';
@@ -1067,7 +1107,7 @@ client.on('message', message => {
     
     // Exit if it's DropBot.
     //   We do not use message.author.bot so that unit testing can be done with bots.
-    if (userID == Constants.DROPBOT_ID || userID == Constants.DEV_DROPBOT_ID) return 0;
+    if (userID == Constants.DROPBOT_ID || userID == Constants.DEV_DROPBOT_ID) return;
 
     // Special for Official DropBot Support server
     // Do not want to take DropBot off each channel for visibility.
@@ -1080,7 +1120,7 @@ client.on('message', message => {
     var isDevUser = (DEVSHANS_ID == userID);
     var maxMessageLength = isDevUser ? 50 : 20;
 
-    if ((dbUsers[userID] && dbUsers[userID].blocked) && !(isDevUser)) return 0;
+    if ((dbUsers[userID] && dbUsers[userID].blocked) && !(isDevUser)) return;
 
     // Alert the user if they enter "!db" as it is a common mistake.
     if (sanitizedMessage.substring(0,3) == "!db") {
@@ -1105,21 +1145,24 @@ client.on('message', message => {
     
     // Drop commands that are too long.
     // Currently, this is the longest valid user command:
-    //    db!set 20 10
+    //    db!default fortnight
     // Drop messages greater than this length but suggest help if the command is "set"
     if (message.content.length > maxMessageLength) {
-        if (message.content.substring(3,6) == "set") {
-            args = ["error", "Wrong syntax for set command. Please use \"db!set help\" for usage."];
-            handleCommand(args, message);
+        // Send some extra help for the 2 longer messages if they go over the limit.
+        if (args[0] == "set") {
+            message.reply("Wrong syntax for set command. Please use \"db!set help\" for usage.");
         }
-        return 3;
+        if (args[0] == "default") {
+            message.reply("Wrong syntax for default command. Please use \"db!help\" for usage.");
+        }
+        return;
     }         
     
     if (DEBUG_MESSAGE) {
 	if (message.guild) {
-	    console.log(`------------- New command ${shardID} -----`);
+	    console.log(`------------- New command ${shardID} -----------`);
 	} else {
-	    console.log(`----- New DMChannelcommand ${shardID} -----`);
+	    console.log(`-------- New DMChannelcommand ${shardID} -------`);
 	}
     }
     
@@ -1143,7 +1186,7 @@ client.on('message', message => {
                 
         message.reply(messageContent);
         
-	return 0;
+	return;
     }
 
     var guildID   = message.guild.id;
@@ -1243,13 +1286,13 @@ client.on('message', message => {
                     handleCommand(args, message);
                 }, 500);
             }).catch(err => {
-                console.error("ERROR initGuild + " + guildID + ":\n", err);
+                console.error("ERROR initGuild [" + guildID + "]:\n", err);
             });    
         });
 
         // Do not execute any more code in this function.
         // User and server are treated as new and command will be sent if setup was successful.
-        return 0;
+        return;
     }  
 
     // This will be triggered the first time a user sends a command since reboot, if it is not a new server.
@@ -1292,9 +1335,11 @@ client.on('message', message => {
 
 	    }
 
-	});
+	}).catch(err => {
+            console.error("ERROR readUser [" + guildID + "]:\n", err);
+        });    
 
-	return 0;
+	return;
         
     }
 
@@ -1305,11 +1350,11 @@ client.on('message', message => {
 		dbUsers[userID].blocked  = true;
 		dbAWS.updateUser(dbUsers[userID]); 
             }
-            args = ["error", "Too many strikes [" + Constants.USER_MAX_STRIKES + "].\n" + "<@!" + userID + "> blocked due to rate limiting.\n" +
-		    "Please wait at least an hour or contact developer devshans0@gmail.com if you think this was in error."];
             console.log("BLOCKED: User - " + user + "[" + userID + "] due to max strikes of rate limiting.");
-            handleCommand(args, message);
-            return 3;
+            message.reply("You have been blocked due to rate limiting.\n" +
+		          "Please wait at least an hour or contact developer at Official DropBot Support if you think this was in error." +
+                          "https://discord.gg/YJWEsvV");
+            return;
 	}
     }
 
@@ -1318,18 +1363,18 @@ client.on('message', message => {
     else { // if (! (STRIKE_SYSTEM_ENABLED))
 
         if (dbUsers[userID].blocked) {
-            args = ["error", "<@!" + userID + "> blocked due to previous violations.\n" +
-		    "Please contact developer devshans0@gmail.com if you think this was in error."];
             console.log("BLOCKED: User - " + userName + "[" + userID + "] tried to access without strike system enabled.");
-            handleCommand(args, message);
-            return 3;
+            message.reply("You have been blocked due to previous violations.\n" +
+		          "Please contact developer at Official DropBot Support server if you think this was in error." +
+                          "https://discord.gg/YJWEsvV");
+            return;
         }
     }
 
     if (VOTE_SYSTEM_ENABLED) {
         if (args[0] == 'vote') {
             handleCommand(args, message);
-            return 0;
+            return;
         }
     } else {
         dbUsers[userID].isVoter = true;
@@ -1374,31 +1419,27 @@ client.on('message', message => {
 
 		    }
 
-                    messageContent  = "\u200B<@!" + userID + "> please wait " + (timeout_sec-timeSinceLastCommand) +
+                    messageContent  = "\u200BPlease wait " + (timeout_sec-timeSinceLastCommand) +
                         " second(s) before issuing another command.\n" +
                         "You may check if your vote has been processed immediately and without penalty with \"db!vote\"";
-                    args = ["error", messageContent];
-                    handleCommand(args, message);
-                    return 1;
+                    message.reply(messageContent);
+                    return;
                 } else {
 		    dbUsers[userID].isVoter = true;
                     if (DEBUG_VOTE) console.log("***** VOTE before handleCommand changed to " + voted + " for userID " + userID);
-                    messageContent  = "\u200B<@!" + userID + ">, thanks for voting! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n";;
-                    args = ["error", messageContent];
-                    handleCommand(args, message);		    
-		    return 0;
+                    message.reply("\u200BThanks for voting! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n");
+		    return;
 		}
             }).catch((err) => {
                 console.log("WARNING: Could not access dbl.hasVoted database for userID: " + userID + "\n" +  err);
-                return 3;
+                return;
             });
             
         } else {
-	    args = ["error", "<@!" + userID + "> please wait " + (timeout_sec-timeSinceLastCommand) + " second(s) before issuing another command.\n"];
-            handleCommand(args, message);            
+            message.reply("Please wait " + (timeout_sec-timeSinceLastCommand) + " second(s) before issuing another command.");
         }
         
-        return 1;
+        return;
         
     }
 

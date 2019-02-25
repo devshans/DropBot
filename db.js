@@ -1,10 +1,19 @@
-var AWS     = require("aws-sdk");
+/*
+    @document   : db-dev.js
+    @author     : devshans
+    @copyright  : 2019, devshans
+    @license    : The MIT License (MIT) - see LICENSE
+    @repository : https://github.com/devshans/DropBot
+    @description: Module for interacting with AWS DynamoDB.
+*/
+
+var AWS       = require("aws-sdk");
 var Constants = require('./Constants.js');
 
 var DEBUG_DATABASE = true;
 
 const filenameArray = __filename.split("/");
-var developerMode = filenameArray[filenameArray.length-1] == "db-dev.js" ? true : false;
+const developerMode = filenameArray[filenameArray.length-1] == "db-dev.js" ? true : false;
 
 AWS.config.update({
     region: "us-east-2",
