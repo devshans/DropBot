@@ -28,8 +28,10 @@ https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&p
 ```
 Add DropBot to a Discord server and see help by sending a "db!help" message in a channel with DropBot active.
    Will randomly choose a location in Apex Legends and Fortnite to drop.
-
+   
 Optional features:
+usage: db![option]
+
 db![option]    Description
 -----------------------
 db!drop  /  db!       : Uses the default game location for randomly choosing a drop location. Change with "db!default"
@@ -50,7 +52,7 @@ db!aset [id] [weight] : Change the percentage chance of choosing each Apex Legen
 
 -----------------------
 db!set [id] [weight]
-  Change the chance of choosing each location.
+  Change the chance of choosing each Fortnite location.
 
 -------------- Fortnite ---------------
   ID   Location        Weight  % Chance
@@ -58,26 +60,29 @@ db!set [id] [weight]
    0 - Dusty Divot     - 5     - 4.8%
    1 - Fatal Fields    - 5     - 4.8%
    2 - Frosty Flights  - 5     - 4.8%
-   3 - Tomato Temple   - 5     - 4.8%
-   4 - Happy Hamlet    - 5     - 4.8%
-   5 - Haunted Hills   - 5     - 4.8%
-   6 - Junk Junction   - 5     - 4.8%
-   7 - Lazy Links      - 5     - 4.8%
-   8 - Lonely Lodge    - 5     - 4.8%
-   9 - Loot Lake       - 5     - 4.8%
-  10 - Lucky Landing   - 5     - 4.8%
-  11 - Paradise Palms  - 5     - 4.8%
-  12 - Pleasant Park   - 5     - 4.8%
-  13 - Polar Peak      - 5     - 4.8%
-  14 - Retail Row      - 5     - 4.8%
-  15 - Salty Springs   - 5     - 4.8%
-  16 - Shifty Shafts   - 5     - 4.8%
-  17 - Snobby Shores   - 5     - 4.8%
+   3 - Happy Hamlet    - 5     - 4.8%
+   4 - Haunted Hills   - 5     - 4.8%
+   5 - Junk Junction   - 5     - 4.8%
+   6 - Lazy Lagoon     - 5     - 4.8%
+   7 - Lonely Lodge    - 5     - 4.8%
+   8 - Loot Lake       - 5     - 4.8%
+   9 - Lucky Landing   - 5     - 4.8%
+  10 - Paradise Palms  - 5     - 4.8%
+  11 - Pleasant Park   - 5     - 4.8%
+  12 - Polar Peak      - 5     - 4.8%
+  13 - Retail Row      - 5     - 4.8%
+  14 - Salty Springs   - 5     - 4.8%
+  15 - Shifty Shafts   - 5     - 4.8%
+  16 - Snobby Shores   - 5     - 4.8%
+  17 - Sunny Steps     - 5     - 4.8%
   18 - The Block       - 5     - 4.8%
   19 - Tilted Towers   - 5     - 4.8%
-  20 - Wailing Woods   - 5     - 4.8%
+  20 - Tomato Temple   - 5     - 4.8%
   ------------------------------------
 Total weight: 105
+
+db!aset [id] [weight]
+  Change the chance of choosing each Fortnite location.
 
 ------------ Apex Legends -------------
   ID   Location        Weight  % Chance
@@ -102,14 +107,15 @@ Total weight: 105
   ------------------------------------
 Total weight: 85
 
+
 [weight] can be 0 to 10.
  10 being most likely to be chosen.
   0 being a location that will not be chosen.
 
 All locations default to a weight of 5.
-Example: To remove Happy Hamlet from the list, send message:
-  "db!set 4 0
-Example: To set Snobby Shores to the max chance, send message:
-  "db!set 17 10
+Example: To remove Fortnite's Happy Hamlet from the list, send message:
+  "db!set 3 0
+Example: To set Apex Legend's Slum Lakes to the max chance, send message:
+  "db!aset 11 10
   ```
   
