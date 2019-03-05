@@ -23,9 +23,6 @@ AWS.config.update({
 var docClient = new AWS.DynamoDB.DocumentClient();
 
 // DynamoDB Table Names
-var dbTableLocationsFN = "DropLocations";
-var dbTableLocationsAL = "DropLocationsAL";
-
 if (developerMode) {
     var dbTableGuilds    = "dev_DropGuilds";
     var dbTableUsers     = "dev_DropUsers";
@@ -192,7 +189,7 @@ var getUsers = async function (id) {
 };
 
 
-var initGuildDatabase = async function(dropBotGuild, defaultWeightsFN, defaultWeightsAL) {
+var initGuildDatabase = async function(dropBotGuild) {
    
     return new Promise(function(resolve, reject) {
 
@@ -200,12 +197,13 @@ var initGuildDatabase = async function(dropBotGuild, defaultWeightsFN, defaultWe
 
         guildPromise.then(function(result) {
 
+            dropBotGuild.majorVersion = Constants.MAJOR_VERSION;
+            dropBotGuild.minorVersion = Constants.MINOR_VERSION;
             dropBotGuild.updateNotice = false;
-            dropBotGuild.defaultWeightsFN = defaultWeightsFN;
-            dropBotGuild.defaultWeightsAL = defaultWeightsAL;
+            dropBotGuild.defaultWeightsFN = Constants.defaultWeightsFN; 
+            dropBotGuild.defaultWeightsAL = Constants.defaultWeightsAL;
 
-            var dbStringFN = defaultWeightsFN.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});
-	    var dbStringAL = defaultWeightsAL.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});
+            var dbStringMax = Constants.defaultWeightsMax.reduce((map, obj) => (map[obj.id] = obj.weight, map), {});
 
 	    var epochTime = new Date().getTime();
 	    
@@ -217,9 +215,11 @@ var initGuildDatabase = async function(dropBotGuild, defaultWeightsFN, defaultWe
                     Item:{
                         "name":dropBotGuild.name,
                         "id":dropBotGuild.id,
+                        "majorVersion":Constants.MAJOR_VERSION,
+                        "minorVersion":Constants.MINOR_VERSION,
                         "numAccesses":1,
-                        "dropLocations":dbStringFN,
-                        "dropLocationsAL":dbStringAL,			
+                        "dropLocationsFN":dbStringMax,
+                        "dropLocationsAL":dbStringMax,
 			"audioMute":false,
                         "updateNotice":true,
 			"defaultGame":"fortnite",
@@ -237,6 +237,9 @@ var initGuildDatabase = async function(dropBotGuild, defaultWeightsFN, defaultWe
 
             } else {
                 if (DEBUG_DATABASE) console.log("Guild already exists in database..");
+
+                dropBotGuild.majorVersion = result.Item.majorVersion;
+                dropBotGuild.minorVersion = result.Item.minorVersion;
 
                 //fixme - SPS. Push these guilds to a queue that is sent out separately.
                 // Send a message to the guild if it is the first access since an update.
@@ -279,27 +282,37 @@ var initGuild = async function(dropBotGuild) {
                 console.error("ERROR initGuild " + dropBotGuild.id + ":\nresult.Item is null.");
                 reject ("result.Item is null");
 	    }
-	    
-	    var myDropLocationsFN = result.Item.dropLocations;
+
+	    var myDropLocationsFN = result.Item.dropLocationsFN;
 	    var myDropLocationsAL = result.Item.dropLocationsAL;
 
 	    dropBotGuild.defaultGame = result.Item.defaultGame;            
 	    dropBotGuild.audioMute   = result.Item.audioMute;
 
+            var index = 0;
 	    for (var i in myDropLocationsFN) {
+                if (index >= parseInt(Constants.NUM_LOCATIONS_FN)) break;
+		
                 dropBotGuild.dropWeightsFN += myDropLocationsFN[i];
                 dropBotGuild.dropLocationsFN.push({
-		    id: i,
-		    weight: myDropLocationsFN[i]
+	            id: i,
+	            weight: myDropLocationsFN[i]
                 });
+
+		index++;
 	    }
 
+            index = 0;
 	    for (var i in myDropLocationsAL) {
+                if (index >= parseInt(Constants.NUM_LOCATIONS_AL)) break;
+                
                 dropBotGuild.dropWeightsAL += myDropLocationsAL[i];
                 dropBotGuild.dropLocationsAL.push({
 		    id: i,
 		    weight: myDropLocationsAL[i]
                 });
+
+                index++;
 	    }
 
 	    resolve(dropBotGuild);
@@ -319,8 +332,6 @@ var resetGuild = async function(dropBotGuild, defaultWeightsFN, defaultWeightsAL
 
         if (DEBUG_DATABASE) console.log("resetGuild for guild: ", dropBotGuild.id);
 
-
-
         dropBotGuild.defaultGame = "fortnite";
     	dropBotGuild.audioMute   = false;
 
@@ -332,9 +343,9 @@ var resetGuild = async function(dropBotGuild, defaultWeightsFN, defaultWeightsAL
         for (var dropLocationID in prevDropLocationsFN) {
             dropBotGuild.dropLocationsFN.push({
                 id: dropLocationID,
-                weight: defaultWeightsFN[dropLocationID]['weight']
+                weight: dropBotGuild.defaultWeightsFN[dropLocationID]['weight']
             });
-            dropBotGuild.dropWeightsFN += Number(defaultWeightsFN[dropLocationID]['weight']);
+            dropBotGuild.dropWeightsFN += Number(dropBotGuild.defaultWeightsFN[dropLocationID]['weight']);
         }
 	
         dropBotGuild.dropLocationsAL = [];
@@ -342,9 +353,9 @@ var resetGuild = async function(dropBotGuild, defaultWeightsFN, defaultWeightsAL
         for (var dropLocationID in prevDropLocationsAL) {
             dropBotGuild.dropLocationsAL.push({
                 id: dropLocationID,
-                weight: defaultWeightsAL[dropLocationID]['weight']
+                weight: dropBotGuild.defaultWeightsAL[dropLocationID]['weight']
             });
-            dropBotGuild.dropWeightsAL += Number(defaultWeightsAL[dropLocationID]['weight']);
+            dropBotGuild.dropWeightsAL += Number(dropBotGuild.defaultWeightsAL[dropLocationID]['weight']);
         }
       
 
@@ -356,8 +367,10 @@ var resetGuild = async function(dropBotGuild, defaultWeightsFN, defaultWeightsAL
             Key:{
                 "id":dropBotGuild.id
             },
-            UpdateExpression: "set dropLocations = :dfn, dropLocationsAL = :dal, defaultGame = :dg, audioMute = :bool, numAccesses = numAccesses + :val",
+            UpdateExpression: "set majorVersion = :majv, minorVersion = :minv, dropLocationsFN = :dfn, dropLocationsAL = :dal, defaultGame = :dg, audioMute = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
+                ":majv":Constants.MAJOR_VERSION,
+                ":minv":Constants.MINOR_VERSION,
                 ":dfn":dbStringFN,
 		":dal":dbStringAL,
                 ":dg":dropBotGuild.defaultGame,
@@ -371,7 +384,7 @@ var resetGuild = async function(dropBotGuild, defaultWeightsFN, defaultWeightsAL
             if (DEBUG_DATABASE) console.log("Successfully updated entry.");
             resolve(dropBotGuild);
         }, function(err) {
-            console.error("ERROR updateGuildAll: Failed to update database entry.\n" + err);
+            console.error("ERROR resetGuild: Failed to update database entry.\n" + err);
             reject(err);
         });
 
@@ -394,8 +407,10 @@ var updateGuildAll = async function(dropBotGuild) {
             Key:{
                 "id":dropBotGuild.id
             },
-            UpdateExpression: "set dropLocations = :dfn, dropLocationsAL = :dal, defaultGame = :dg, audioMute = :bool, numAccesses = numAccesses + :val",
+            UpdateExpression: "set majorVersion = :majv, minorVersion = :minv, dropLocationsFN = :dfn, dropLocationsAL = :dal, defaultGame = :dg, audioMute = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
+                ":majv":Constants.MAJOR_VERSION,
+                ":minv":Constants.MINOR_VERSION,
                 ":dfn":dbStringFN,
 		":dal":dbStringAL,
                 ":dg":dropBotGuild.defaultGame,
@@ -431,7 +446,7 @@ var updateGuildDropsFN = async function(dropBotGuild) {
             Key:{
                 "id":dropBotGuild.id
             },
-            UpdateExpression: "set dropLocations = :d, numAccesses = numAccesses + :val",
+            UpdateExpression: "set dropLocationsFN = :d, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
                 ":d":dbStringFN,
                 ":val":1
@@ -557,8 +572,10 @@ var updateGuildUpdateNotice = async function(dropBotGuild) {
             Key:{
                 "id":dropBotGuild.id
             },
-            UpdateExpression: "set updateNotice = :bool, numAccesses = numAccesses + :val",
+            UpdateExpression: "set majorVersion = :majv, minorVersion = :minv, updateNotice = :bool, numAccesses = numAccesses + :val",
             ExpressionAttributeValues:{
+                ":majv":Constants.MAJOR_VERSION,
+                ":minv":Constants.MINOR_VERSION,
                 ":bool":true,
                 ":val":1
             },
@@ -577,105 +594,6 @@ var updateGuildUpdateNotice = async function(dropBotGuild) {
 
 };
 
-
-var getDropLocationFN = async function (id) {
-
-    var params = {
-        TableName: dbTableLocationsFN,
-        Key:{
-            "id":id
-        }
-    };
-
-    return docClient.get(params).promise();
-};
-
-var getDropLocationAL = async function (id) {
-
-    var params = {
-        TableName: dbTableLocationsAL,
-        Key:{
-            "id":id
-        }
-    };
-
-    return docClient.get(params).promise();
-};
-
-
-var initDefaultWeightsFN = async function () {
-
-    return new Promise(function(resolve, reject) {
-
-        var promises = [];
-        var defaultWeightsFN = [];
-
-        console.log("Getting Fortnite default weights for client.");
-
-        for (var id = 0; id < Constants.dropLocationNamesFN.length; id++) {
-            promises.push(getDropLocationFN(id));
-        }
-
-        Promise.all(promises).then((results) => {
-
-            for (var i=0; i < results.length; i++) {
-                var dropLocationWeight = results[i].Item.defaultWeight;
-                var dropLocationName   = results[i].Item.name;
-
-                defaultWeightsFN.push({
-                    id: results[i].Item.id,
-                    weight: dropLocationWeight
-                });
-
-            }
-
-            resolve(defaultWeightsFN);
-
-        }).catch((e) => {
-            console.error("ERROR initDefaultWeightsFN:\n" + e);
-            reject(e);
-        });
-    });
-
-}
-
-var initDefaultWeightsAL = async function () {
-
-    return new Promise(function(resolve, reject) {
-
-        var promises = [];
-        var defaultWeightsAL = [];
-
-        console.log("Getting Apex default weights for client.");
-
-        for (var id = 0; id < Constants.dropLocationNamesAL.length; id++) {
-            promises.push(getDropLocationAL(id));
-        }
-
-        Promise.all(promises).then((results) => {
-
-            for (var i=0; i < results.length; i++) {
-                var dropLocationWeight = results[i].Item.defaultWeight;
-                var dropLocationName   = results[i].Item.name;
-
-                defaultWeightsAL.push({
-                    id: results[i].Item.id,
-                    weight: dropLocationWeight
-                });
-
-            }
-
-            resolve(defaultWeightsAL);
-
-        }).catch((e) => {
-            console.error("ERROR initDefaultWeightsAL:\n" + e);
-            reject(e);
-        });
-    });
-
-};
-
-
 // ----------------------------------------------------------------------------------------
 // Database function exports
 // ----------------------------------------------------------------------------------------
@@ -684,10 +602,6 @@ module.exports = {
     
     databasePut    : databasePut,
     databaseUpdate : databaseUpdate,
-
-    // DropBot Locations Database(s) Functions
-    initDefaultWeightsFN : initDefaultWeightsFN,
-    initDefaultWeightsAL : initDefaultWeightsAL,
 
     // DropBot User Database Functions
     initUser   : initUser,

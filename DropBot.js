@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 8.9.0
+    @version    : 9.2.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -80,25 +80,11 @@ var dbUsers  = [];
 const client  = new Discord.Client();
 const shardID = client.shard === null ? -1 : client.shard.id;
 
-// Retrieve default weights and start client when ready.
-var defaultWeightsFN = [];
-var defaultWeightsAL = [];
-dbAWS.initDefaultWeightsFN().then((result) => {
-    console.log("Retrieved default weights for Fortnite.")
-    defaultWeightsFN = result;
-    
-    dbAWS.initDefaultWeightsAL().then((result) => {
-        console.log("Retrieved default weights for Apex Legends.")
-        defaultWeightsAL = result;
-
-        // Log our bot in using the token from https://discordapp.com/developers/applications/me
-        client.login(client.token);
-    }).catch((e) => {
-        console.error("ERROR initDefaultWeightsAL:\n" + e);
-    });
-}).catch((e) => {
-    console.error("ERROR initDefaultWeightsFN:\n" + e);
-});
+// Log our bot in using the token from https://discordapp.com/developers/applications/me
+var loginDelay = developerMode ? 10 : 100;
+setTimeout(function() {
+    client.login(client.token);
+}, loginDelay);
 
 // ------------------------------------------------------------------------------
 // DiscordBotList API
@@ -181,10 +167,11 @@ client.on('ready', () => {
             setInterval(() => {
                 dblPostStats();
             }, 1800000);
-        }, (5000*shardID));
+        }, (1000*shardID));
     }
 
-    console.log(`DropBot shard ${client.shard.id} listening on ${client.guilds.size} servers for commands.`);
+    console.log(`DropBot ${Constants.MAJOR_VERSION}.${Constants.MINOR_VERSION} shard ${client.shard.id} ` +
+                `listening on ${client.guilds.size} servers for commands.`);
     
 });
 
@@ -267,7 +254,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
     let messageContent = "";
     
     if (client.voiceConnections.get(message.guild.id)) {
-        message.reply("Wait for DropBot to finish talking");
+        message.reply("wait for DropBot to finish talking.\nUse \"db!stop\" to force DropBot to leave the voice channel.");
         return;
     }   
 
@@ -301,7 +288,10 @@ async function playDropLocation(isFortnite, message, guildMember) {
     messageContent = 'So, where we droppin\' boys...';
     sendMessage(messageContent, message.channel);
     
-    let dropLocationMessage = "```" + dropLocation + " (" + dropChance + "% chance) - " + gameName + "```" + "\nUse \"db!settings\" to see locations and chances.";
+    let dropLocationMessage = "```" + dropLocation + " (" + dropChance + "% chance) - " + gameName
+        + "```" + "\nUse \"db!settings\" to see locations and chances. ";
+    if (isFortnite) dropLocationMessage += 'Use "db!set help" to change chance percentages. ';
+    else            dropLocationMessage += 'Use "db!aset help" to change chance percentages. ';
 
     messageContent = "";
     
@@ -320,10 +310,10 @@ async function playDropLocation(isFortnite, message, guildMember) {
             console.error("Couldn't find introFile: " + introFile);
             return;
         }
-	
+        
         const sfxFile = isFortnite ?
-              config.sfxPrefixFN + dropLocation.split(' ').join('_').toLowerCase() + '.wav' :
-              config.sfxPrefixAL + dropLocation.split(' ').join('_').toLowerCase() + '.wav';              
+               config.sfxPrefixFN + dropLocation.split(' ').join('_').toLowerCase() + '.wav' :
+               config.sfxPrefixAL + dropLocation.split(' ').join('_').toLowerCase() + '.wav';
         
         if (!fs.existsSync(sfxFile)) {
             console.error("Could not access sfxFile: " + sfxFile);
@@ -359,6 +349,8 @@ async function playDropLocation(isFortnite, message, guildMember) {
                 return;
             }
 
+            sendMessage(dropLocationMessage, message.channel, {delay: 3000});
+
             // Attempt to join the member's voice channel.
             guildMember.voiceChannel.join().then(connection => { // Connection is an instance of VoiceConnection       	
 
@@ -366,7 +358,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
                 // Emitted whenever the connection encounters an error.
                 connection.on("error", error => {
-                    console.error("ERROR connection playFile intro:\n" + error);
+                    console.error("ERROR connection playStream sfxFile:\n" + error);
                     connection.disconnect();
 		    connection.channel.leave();
                     return;
@@ -374,54 +366,24 @@ async function playDropLocation(isFortnite, message, guildMember) {
 
                 // Emitted when we fail to initiate a voice connection.
                 connection.on("failed", error => {
-                    console.error("ERROR connection playFile intro:\n" + error);
+                    console.error("ERROR connection playStream sfxFile:\n" + error);
                     return;
-        	});	
+        	});                
                 
 		// playStream() is less efficient than using playFile() but it will cut off the end of the audio.
-                const dispatcher = connection.playStream(fs.createReadStream(introFile)); // StreamDispatcher
+                const dispatcher = connection.playStream(fs.createReadStream(sfxFile)); // StreamDispatcher
 
                 // Emitted once the dispatcher ends.
                 dispatcher.on('end', () => {
-
-                    // Emitted whenever the connection encounters an error.
-                    connection.on("error", error => {
-                        console.error("ERROR connection 2 playFile intro:\n" + error);
+                    setTimeout(function() {
                         connection.disconnect();
 		        connection.channel.leave();
-                        return;
-        	    });
-
-                    // Emitted when we fail to initiate a voice connection.
-                    connection.on("failed", error => {
-                        console.error("ERROR connection playFile intro:\n" + error);
-                        return;
-        	    });	
-                    
-                    sendMessage(dropLocationMessage, message.channel, {delay: 1000});
-
-                    // Create second dispatcher for playing the location sfxFile
-		    const dispatcher2 = connection.playStream(fs.createReadStream(sfxFile));
-
-                    // Emitted once the dispatcher ends.
-                    dispatcher2.on('end', () => {
-                        connection.disconnect();
-		        connection.channel.leave();
-                    });
-
-                    // Emitted when we fail to initiate a voice connection.
-                    dispatcher2.on("error", error => {
-        	        console.log("ERROR dispatcher2 playFile location:\n" + error);
-                        connection.disconnect();
-		        connection.channel.leave();
-                        return;
-        	    });
-
+                    }, 200);
                 });
 
                 // Emitted when we fail to initiate a voice connection.
                 dispatcher.on("error", error => {
-                    console.error("ERROR dispatcher playFile intro:\n" + error);
+                    console.error("ERROR dispatcher playStream sfxFile:\n" + error);
                     connection.disconnect();
 		    connection.channel.leave();    	    
         	});
@@ -436,7 +398,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
             sendMessage(dropLocationMessage, message.channel, {delay: 500});
             
             setTimeout(function() {
-        	message.reply('To announce location, join a voice channel to get audio or mute DropBot using \"db!mute\" to remove this message.');
+        	message.reply('to announce location, join a voice channel to get audio or mute DropBot using \"db!mute\" to remove this message.');
             }, 500);
 
         }
@@ -721,7 +683,7 @@ async function handleCommand(args, message) {
 
     case 'd':
     case 'donate':
-        message.reply("Donate to DropBot development from the link below!");
+        message.reply("donate to DropBot development from the link below!");
         message.channel.send(config.donateURL);
         break;
         
@@ -760,7 +722,7 @@ async function handleCommand(args, message) {
                     dropUserWarned[userID]  = false;
 
                     updateUser(userID, epochTime, false).then(result => {
-                        message.reply("You are shown as voting within the last 24 hours! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n");
+                        message.reply("you are shown as voting within the last 24 hours! Restriction lessened to " + Constants.VOTE_USER_TIMEOUT_SEC + " second(s).\n");
                     }).catch((err) => {
                         console.error("ERROR vote command update: " + err);
                     });
@@ -849,7 +811,7 @@ async function handleCommand(args, message) {
 
         dbAWS.updateGuildDefaultGame(dbGuilds[guildID]).then(dropBotGuild => {
             let newDefaultGameString = newDefaultGame == "fortnite" ? "Fortnite" : "Apex Legends";
-            messageContent = "\u200BChanged default game to " + newDefaultGameString;
+            messageContent = "\u200Bchanged default game to " + newDefaultGameString;
             message.reply(messageContent);
             console.log(`Successfully updated default game for ${message.guild.name}[${guildID}]`);
         }).catch((e) => {
@@ -925,19 +887,33 @@ async function handleCommand(args, message) {
             return;
         }
 
-        dbGuilds[guildID].dropWeightsAL = nextTotalWeight;
+	if (isFortniteCommand) {
+            dbGuilds[guildID].dropWeightsFN = nextTotalWeight;
+	} else {
+	    dbGuilds[guildID].dropWeightsAL = nextTotalWeight;
+	}
 
 	sendMessage(messageContent, message.channel);
 
-        dbAWS.updateGuildDropsAL(dbGuilds[guildID]).then(dropBotGuild => {
+	if (isFortniteCommand) {
+            dbAWS.updateGuildDropsFN(dbGuilds[guildID]).then(dropBotGuild => {
 
-            var sendMessageContent = isFortniteCommand ? dbGuilds[guildID].fortniteToString() :
-                                                         dbGuilds[guildID].apexToString();
-            sendMessage('```' + sendMessageContent + '```', message.channel, {delay: 200});
+		var sendMessageContent = dbGuilds[guildID].fortniteToString();
+		sendMessage('```' + sendMessageContent + '```', message.channel, {delay: 200});
 
-        }).catch((e) => {
-            console.error("ERROR updateGuildDropsAL: " + e);
-        });
+            }).catch((e) => {
+		console.error("ERROR updateGuildDropsFN: " + e);
+            });
+	} else {
+            dbAWS.updateGuildDropsAL(dbGuilds[guildID]).then(dropBotGuild => {
+
+		var sendMessageContent = dbGuilds[guildID].apexToString();
+		sendMessage('```' + sendMessageContent + '```', message.channel, {delay: 200});
+
+            }).catch((e) => {
+		console.error("ERROR updateGuildDropsAL: " + e);
+            });
+	}
         
         break;
         
@@ -966,17 +942,21 @@ async function handleCommand(args, message) {
 
         messageContent = "Retrieving info for this server...";
 	sendMessage(messageContent, message.channel);
-        sendMessage(dbGuilds[guildID].toString(), message.channel);
 
+	sendMessage("```" + dbGuilds[guildID].headerString()     + "```", message.channel);
+	sendMessage("```" + dbGuilds[guildID].fortniteToString() + "```", message.channel, {delay: 200});
+	sendMessage("```" + dbGuilds[guildID].apexToString()     + "```", message.channel, {delay: 400});
         break;
               
     case 'reset':
         messageContent = "Resetting all values to their defaults...";
 	sendMessage(messageContent, message.channel);
 
-        dbAWS.resetGuild(dbGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
+        dbAWS.resetGuild(dbGuilds[guildID]).then(dropBotGuild => {
             dbGuilds[guildID] = dropBotGuild;
-	    sendMessage(dbGuilds[guildID].toString(), message.channel, {delay: 500});           
+	    sendMessage("```" + dbGuilds[guildID].headerString()     + "```", message.channel);
+	    sendMessage("```" + dbGuilds[guildID].fortniteToString() + "```", message.channel, {delay: 200});
+	    sendMessage("```" + dbGuilds[guildID].apexToString()     + "```", message.channel, {delay: 400});
         }).catch((e) => {
             console.error("ERROR updateGuildDrops: " + e);
         });
@@ -1139,7 +1119,7 @@ client.on('message', message => {
 
     // WE DO give an error if there is a space before what could be a valid command.
     if (message.content.length > 4 && message.content[3] == " " && message.content[4].match(/[a-z0-9]/i)) {
-	message.reply("Do not put a space after \"db!\" and command");
+	message.reply("do not put a space after \"db!\" and command");
         return;
     }
     
@@ -1150,10 +1130,10 @@ client.on('message', message => {
     if (message.content.length > maxMessageLength) {
         // Send some extra help for the 2 longer messages if they go over the limit.
         if (args[0] == "set") {
-            message.reply("Wrong syntax for set command. Please use \"db!set help\" for usage.");
+            message.reply("wrong syntax for set command. Please use \"db!set help\" for usage.");
         }
         if (args[0] == "default") {
-            message.reply("Wrong syntax for default command. Please use \"db!help\" for usage.");
+            message.reply("wrong syntax for default command. Please use \"db!help\" for usage.");
         }
         return;
     }         
@@ -1221,7 +1201,7 @@ client.on('message', message => {
 
         dbGuilds[guildID] = new DBGuild(guildID, guildName);
         
-        dbAWS.initGuildDatabase(dbGuilds[guildID], defaultWeightsFN, defaultWeightsAL).then(dropBotGuild => {
+        dbAWS.initGuildDatabase(dbGuilds[guildID]).then(dropBotGuild => {
             if (DEBUG_MESSAGE) console.log("initGuildDatabase success.");
             dbGuilds[guildID] = dropBotGuild;
             client.guilds.size++;
@@ -1231,16 +1211,37 @@ client.on('message', message => {
             dbGuilds[guildID] = false; 
         }).then(() => {
 
-            if (dbGuilds[guildID].updateNotice) {
+            var sendMessage = `DropBot has been updated to Version ${Constants.MAJOR_VERSION}.${Constants.MINOR_VERSION}\n`;
+            sendMessage += "Updated Fortnite locations.\n";
+	    sendMessage += 'Fixed an issue where using "db!set" and "db!aset" commands were not always saving custom weights.\n';
+            sendMessage += "All custom drop weight percentages have been reset again. Sorry for the inconvenience.\n";
+	    sendMessage += "Post on DropBot support server linked in db!help if you have any issues.";
+            
+            if ((dbGuilds[guildID].majorVersion < Constants.MAJOR_VERSION) ||
+                (dbGuilds[guildID].majorVersion == Constants.MAJOR_VERSION &&
+                 dbGuilds[guildID].minorVersion < Constants.MINOR_VERSION)) {
+                
                 dbGuilds[guildID].updateNotice = false;
+                dbGuilds[guildID].majorVersion = Constants.MAJOR_VERSION;
+                dbGuilds[guildID].minorVersion = Constants.MINOR_VERSION;
+                
                 dbAWS.updateGuildUpdateNotice(dbGuilds[guildID]).then(result => {                
                     setTimeout(function() {
-		        message.channel.send("<@!" + userID + "> - DropBot has been updated to version 8.5! \n" +
-					     "Added ability to change default game for \"db!drop\" and \"db!\" commands.\n" +
-                                             "If your server wants to play Apex Legends, try using the command \"db!default apex\" to save yourself some time.\n" +
-					     "Use db!help for more info on commands.\n" +
-					     "Post on DropBot support server linked in db!help if you have any issues."
-					    );
+		        message.reply(sendMessage);
+	            }, 8000);
+                });
+
+            }
+
+            if (dbGuilds[guildID].updateNotice) {
+
+                dbGuilds[guildID].updateNotice = false;
+                dbGuilds[guildID].majorVersion = Constants.MAJOR_VERSION;
+                dbGuilds[guildID].minorVersion = Constants.MINOR_VERSION;
+
+                dbAWS.updateGuildUpdateNotice(dbGuilds[guildID]).then(result => {                
+                    setTimeout(function() {
+                        message.reply(sendMessage);
 	            }, 10000);
                 });
             }	    
@@ -1391,6 +1392,7 @@ client.on('message', message => {
     if (args[0] == 'help') timeout_sec = 1;
 
     var timeSinceLastCommand = Math.ceil((epochTime-dbUsers[userID].timeout)/1000);
+    if (timeSinceLastCommand == 1) timeSinceLastCommand = 0; // Don't round up timeouts less than 1 second.
     if (DEBUG_MESSAGE) console.log("User " + userID + " time since last command: " + timeSinceLastCommand);
     
     if (timeSinceLastCommand < timeout_sec && !(isDevUser)) {
@@ -1438,25 +1440,37 @@ client.on('message', message => {
         } else {
             message.reply("Please wait " + (timeout_sec-timeSinceLastCommand) + " second(s) before issuing another command.");
         }
-        
+
+        dbUsers[userID].timeout = dateTime.getTime();
         return;
         
     }
 
     // Update last access time and related stats if command succeeded
     epochTime = dateTime.getTime();
-    dbUsers[userID].strikes = 0;
     dbUsers[userID].timeout = epochTime;
-    dbUsers[userID].blocked = false;
-    dbUsers[userID].warned  = false;
+    
+    if (dbUsers[userID].strikes != 0 ||
+        dbUsers[userID].blocked ||
+        dbUsers[userID].warned) {
+        dbUsers[userID].strikes = 0;
+        dbUsers[userID].blocked = false;
+        dbUsers[userID].warned  = false;
 
-    dbAWS.updateUser(dbUsers[userID]).then(dropBotUser => {
-        dbUsers[userID] = dropBotUser;
+        dbAWS.updateUser(dbUsers[userID]).then(dropBotUser => {
+            dbUsers[userID] = dropBotUser;
+            setTimeout(function() {                
+                handleCommand(args, message);
+            }, 100);
+        }).catch((err) => {
+            console.error("ERROR updateUser bot.on(message): ", err);
+        });
+
+    } else {
         setTimeout(function() {                
             handleCommand(args, message);
         }, 100);
-    }).catch((err) => {
-        console.error("ERROR updateUser bot.on(message): ", err);
-    });
+    }
+
 
 });

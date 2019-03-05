@@ -6,6 +6,9 @@
     @repository : https://github.com/devshans/DropBot
 */
 
+const MAJOR_VERSION = 9;
+const MINOR_VERSION = 2;
+
 // Intro sound file list
 const dropIntros = [
      'intro.wav'
@@ -13,16 +16,20 @@ const dropIntros = [
     ,'intro3.wav'
 ];
 
+const DEFAULT_WEIGHT    = 5;
+const NUM_LOCATIONS_MAX = 50
+const NUM_LOCATIONS_FN  = 21;
+const NUM_LOCATIONS_AL  = 17;
+
 // Fortnite specific stuff
 var dropLocationNamesFN = [
     "Dusty Divot"
     ,"Fatal Fields"
     ,"Frosty Flights"
-    ,"Tomato Temple"
     ,"Happy Hamlet"
     ,"Haunted Hills"
     ,"Junk Junction"
-    ,"Lazy Links"
+    ,"Lazy Lagoon"
     ,"Lonely Lodge"
     ,"Loot Lake"
     ,"Lucky Landing"
@@ -33,9 +40,10 @@ var dropLocationNamesFN = [
     ,"Salty Springs"
     ,"Shifty Shafts"
     ,"Snobby Shores"
+    ,"Sunny Steps"
     ,"The Block"
     ,"Tilted Towers"
-    ,"Wailing Woods"
+    ,"Tomato Temple"    
 ];
 
 // Apex specific stuff
@@ -59,11 +67,49 @@ var dropLocationNamesAL = [
     ,"Wetlands"
 ];
 
+// Initialize arrays of default weights
+var defaultWeightsMax = [];
+var defaultWeightsFN = [];
+var defaultWeightsAL = [];
+
+for (var i = 0; i < NUM_LOCATIONS_MAX; i++) {
+    defaultWeightsMax.push({
+        id: i,
+        weight: DEFAULT_WEIGHT
+    });
+}
+
+//fixme - SPS. Make this configurable for legal array indices that can be non-consecutive.
+for (var i = 0; i < NUM_LOCATIONS_FN; i++) {
+    defaultWeightsFN.push({
+        id: i,
+        weight: DEFAULT_WEIGHT
+    });
+}
+for (var i = 0; i < NUM_LOCATIONS_AL; i++) {
+    defaultWeightsAL.push({
+        id: i,
+        weight: DEFAULT_WEIGHT
+    });
+}
+
 module.exports = {
+
+    MAJOR_VERSION : MAJOR_VERSION,
+    MINOR_VERSION : MINOR_VERSION,
+
+    DEFAULT_WEIGHT : DEFAULT_WEIGHT,
+    NUM_LOCATIONS_MAX : NUM_LOCATIONS_MAX,
+    NUM_LOCATIONS_FN : NUM_LOCATIONS_FN,
+    NUM_LOCATIONS_AL : NUM_LOCATIONS_AL,
     
     dropIntros          : dropIntros,
     dropLocationNamesFN : dropLocationNamesFN,
     dropLocationNamesAL : dropLocationNamesAL,
+
+    defaultWeightsMax : defaultWeightsMax,
+    defaultWeightsFN  : defaultWeightsFN,
+    defaultWeightsAL  : defaultWeightsAL,
 
     // Discord ID of this bot to identify ourselves.
     DROPBOT_ID      : "487298106849886224",

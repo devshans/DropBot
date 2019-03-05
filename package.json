@@ -1,6 +1,6 @@
 {
   "name": "DropBot",
-  "version": "8.9.0",
+  "version": "9.2.0",
   "description": "Discordapp bot that randomly selects a location to start/drop in for the Apex Legends and Fortnite Battle Royale games.",
   "main": "DropBotSharder.js",
   "repository": {

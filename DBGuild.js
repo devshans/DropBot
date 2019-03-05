@@ -5,6 +5,8 @@ class DBGuild {
     constructor(id, name) {
 	this.id = id;
         this.name = name;
+        this.majorVersion = Constants.majorVersion;
+        this.majorVersion = Constants.minorVersion;
 	this.dropLocationsFN = {};
 	this.dropWeightsFN   = {};
 	this.dropLocationsAL = {};
@@ -19,10 +21,10 @@ class DBGuild {
     }
 
     headerString() {
-        return ("Discord Guild Settings\n"           + 
+        return (`DropBot ${this.majorVersion}.${this.minorVersion} Guild Settings\n` +
                 "---------------------------------\n" + 
 	        "Server ID    : " + this.id           + "\n" + 
-	        "Server Name  : " + this.name         + "\n" + 
+	        "Server Name  : " + this.name         + "\n" +
                 "Default Game : " + this.defaultGame  + "\n" + 
 	        "Audio Muted  : " + this.audioMute    + "\n\n");
     }
