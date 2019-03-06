@@ -93,7 +93,7 @@ class DBGuild {
             `DropBot ${this.majorVersion}.${this.minorVersion} Guild Settings ` :
             `DropBot ${this.majorVersion}.${this.minorVersion} Guild Settings` ;
         var guildName = this.name;
-        if (this.name.length < 25) {
+        if (this.name.length < 15) {
             for (var j = this.name.length; j < 15; j++) {
                 guildName += " ";
             }
