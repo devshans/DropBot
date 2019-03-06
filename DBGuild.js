@@ -93,20 +93,20 @@ class DBGuild {
             `DropBot ${this.majorVersion}.${this.minorVersion} Guild Settings ` :
             `DropBot ${this.majorVersion}.${this.minorVersion} Guild Settings` ;
         var guildName = this.name;
-        if (this.name.length < 15) {
-            for (var j = this.name.length; j < 15; j++) {
+        if (this.name.length < 50) {
+            for (var j = this.name.length; j < 50; j++) {
                 guildName += " ";
             }
         } else {
-            guildName = this.name.substring(0, 15);
+            guildName = this.name.substring(0, 50);
         }
         var audioMuteString = this.audioMute ? "True " : "False";
-        var defaultGameString = this.defaultGame == "fortnite" ? "  Fortnite  " : "Apex Legends";
+        var defaultGameString = this.defaultGame == "fortnite" ? "Fortnite    " : "Apex Legends";
 
         messageContent += "+-------------------------------------------------------------------+\n";
         messageContent += `|                     ${versionNum}                   |\n`;
         messageContent += `+-------------------------------------------------------------------+\n`;
-        messageContent += `|   Guild ID   | ${this.id} | Guild Name  | ${guildName} |\n`;
+        messageContent += `| Guild Name   | ${guildName} |\n`;
         messageContent += `+--------------+--------------------+-------------+-----------------+\n`;
         messageContent += `| Default Game | ${defaultGameString}       | Audio Muted | ${audioMuteString}           |\n`;
         messageContent += "+-------------------------------------------------------------------+\n";
