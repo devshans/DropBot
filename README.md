@@ -28,12 +28,12 @@ https://discordapp.com/oauth2/authorize?client_id=487298106849886224&scope=bot&p
 ```
 Add DropBot to a Discord server and see help by sending a "db!help" message in a channel with DropBot active.
    Will randomly choose a location in Apex Legends and Fortnite to drop.
-   
-Optional features:
-usage: db![option]
 
-db![option]    Description
------------------------
+Optional features:
+  usage: db![option]
+
+db![option]         Description
+-------------------------------------------------------------------------------------------------------------------
 db!drop  /  db!   : Uses the default game location for randomly choosing a drop location. Change with "db!default"
 db!default [game] : Sets the default game for "db!drop" and "db!" commands. Legal options are "apex" and "fortnite".
 db!fortnite       : Randomly choose a Fortnite location to drop based on server settings.
@@ -49,8 +49,8 @@ db!donate         : Get link to donate to help support bot development and hosti
 db!vote           : Check and update vote status for bot within the last 24 hours without rate limit penalty.
 db!set  [ID] [Wt] : Change the percentage chance of choosing each Fortnite location. Use "db!set help" for more info.
 db!aset [ID] [Wt] : Change the percentage chance of choosing each Apex Legends location. Use "db!set help" for more info.
+-------------------------------------------------------------------------------------------------------------------
 
------------------------
 db!set help / db!aset help
 
 [ID] can be any value in left-most column below.
@@ -91,4 +91,4 @@ Example: To set Apex Legend's Slum Lakes to the max chance, send message:
 | 19 | Tilted Towers  | 5  |  4.8%  |                 |    |        |
 | 20 | Volcano        | 5  |  4.8%  |                 |    |        |
 +----+------------------------------+-----------------+----+--------+
-  
+```
