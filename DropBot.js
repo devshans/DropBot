@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 9.2.0
+    @version    : 9.3.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -284,36 +284,100 @@ async function playDropLocation(isFortnite, message, guildMember) {
             return;
         }
     }
-
-    messageContent = 'So, where we droppin\' boys...';
-    sendMessage(messageContent, message.channel);
     
-    let dropLocationMessage = "```" + dropLocation + " (" + dropChance + "% chance) - " + gameName
-        + "```" + "\nUse \"db!settings\" to see locations and chances. ";
-    if (isFortnite) dropLocationMessage += 'Use "db!set help" to change chance percentages. ';
-    else            dropLocationMessage += 'Use "db!aset help" to change chance percentages. ';
+    let dropLocationAudioFile = dropLocation.split(' ').join('_').toLowerCase() + '.wav';
+    let dropLocationMapFile   = dropLocation.split(' ').join('_').toLowerCase() + '.png';
 
-    messageContent = "";
+    //fixme - SPS. Host images on AWS S3 and use URL instead of encoding locally.
+    const embed = {
+	"title": "*** " + dropLocation + " *** - **" + dropChance + "% Chance**",
+	"url": "https://discordbots.org/bot/487298106849886224",
+	"color": isFortnite ? 3112447 : 16723712,
+	"timestamp": "${(new Date).getTime()}",
+	"footer": {
+	    "icon_url": "https://cdn.discordapp.com/avatars/487298106849886224/3a7aecf76365ae6df789ff9486a32d47.png",
+	    "text": `DropBot Version ${Constants.MAJOR_VERSION}.${Constants.MINOR_VERSION}`
+	},
+	"thumbnail": {
+            "url": "attachment://thumbnail.png"
+	},
+	"image": {
+	    "url": "attachment://" + dropLocationMapFile
+	},
+	"author": {
+	    "name": message.author.username + " - " + gameName + " Drop Location",
+	    "url": "https://discordbots.org/bot/487298106849886224",
+	    "icon_url": message.author.avatarURL
+	},
+        "description": '**Drop command help:** (Use "db!help" for all)',
+	"fields": [
+	    {
+		"name":  dbGuilds[guildID].audioMute ? "DropBot audio muted" : "DropBot audio unmuted",
+		"value": dbGuilds[guildID].audioMute ? 'Change with "db!unmute"' : 'Change with  "db!mute"',
+		"inline": true
+	    },
+	    {
+		"name": "Change drop chances",
+		"value": isFortnite ? 'See usage: "db!set help"' : 'See usage: "db!aset help"',
+		"inline": true
+	    },
+	    {
+		"name": "Reset all settings",
+		"value": 'Use "db!reset"',
+		"inline": true
+	    },
+	    {
+		"name": "See drop chances",
+		"value": "Use \"db!settings\"",
+		"inline": true
+	    }
+	]
+    };
+
+    const embedFiles = [
+        {
+	    attachment: isFortnite ?
+                config.logoPrefix + 'dropbot_logo.png' : 
+                config.logoPrefix + 'dropbot_apex_2.png',
+	    name: "thumbnail.png"
+        },
+        {
+	    attachment: isFortnite ?
+                config.mapPrefixFN + dropLocationMapFile :
+                config.mapPrefixAL + dropLocationMapFile,
+	    name: dropLocationMapFile
+	}
+    ];
+    
+
+    let dropMessageDelay = (dbGuilds[guildID].audioMute && ! (guildMember.voiceChannel)) ? 1000 : 3000;
+
+    message.channel.send('So, where we droppin\' boys...').then(msg => {
+        msg.delete(dropMessageDelay);
+    }).catch((error) => {
+        console.error("Error deleting message playDropLocation");
+    });
+    
+    setTimeout(function() {
+        message.channel.send({
+	    embed,
+            files: embedFiles
+        });
+    }, dropMessageDelay);
+    
     
     if (dbGuilds[guildID].audioMute) {           
 
         if (guildMember.voiceChannel) {
-    	    dropLocationMessage += "\n```User is in a voice channel while DropBot is muted. Use \"db!unmute\" to play audio.```";
+            sendMessage("```User is in a voice channel while DropBot is muted. Use \"db!unmute\" to play audio.```",
+                        message.channel, {delay: 500});
         }
-
-        sendMessage(dropLocationMessage, message.channel, {delay: 500});
 
     } else {
-
-        const introFile = config.sfxPrefixIntro + Constants.dropIntros[Math.floor(Math.random()*Constants.dropIntros.length)];
-        if (!fs.existsSync(introFile)) {
-            console.error("Couldn't find introFile: " + introFile);
-            return;
-        }
         
         const sfxFile = isFortnite ?
-               config.sfxPrefixFN + dropLocation.split(' ').join('_').toLowerCase() + '.wav' :
-               config.sfxPrefixAL + dropLocation.split(' ').join('_').toLowerCase() + '.wav';
+              config.sfxPrefixFN + dropLocationAudioFile :
+              config.sfxPrefixAL + dropLocationAudioFile;
         
         if (!fs.existsSync(sfxFile)) {
             console.error("Could not access sfxFile: " + sfxFile);
@@ -323,7 +387,6 @@ async function playDropLocation(isFortnite, message, guildMember) {
             message.reply(messageContent);
             return;
         }
-
 
         if (guildMember.voiceChannel) {
 
@@ -348,9 +411,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
                               "Please join a channel with open spots or disable voice with \"db!mute\"");
                 return;
             }
-
-            sendMessage(dropLocationMessage, message.channel, {delay: 3000});
-
+           
             // Attempt to join the member's voice channel.
             guildMember.voiceChannel.join().then(connection => { // Connection is an instance of VoiceConnection       	
 
@@ -393,10 +454,7 @@ async function playDropLocation(isFortnite, message, guildMember) {
             });
         	
         } else {
-
-            // Send message anyway but alert user of usage.
-            sendMessage(dropLocationMessage, message.channel, {delay: 500});
-            
+           
             setTimeout(function() {
         	message.reply('to announce location, join a voice channel to get audio or mute DropBot using \"db!mute\" to remove this message.');
             }, 500);
@@ -687,6 +745,7 @@ async function handleCommand(args, message) {
         message.channel.send(config.donateURL);
         break;
         
+    //fixme - SPS. Restructure all this and use the webhook to update vote status.
     case 'v':
     case 'vote':
         if (VOTE_SYSTEM_ENABLED) {
@@ -820,6 +879,7 @@ async function handleCommand(args, message) {
 
         break;
 
+    //fixme - SPS. This needs to be udpated to fill all 50 weights. see db file
     case 'aset':
         isFortniteCommand    = false;
         isFortniteCommandSet = true;
@@ -1100,6 +1160,8 @@ client.on('message', message => {
     var isDevUser = (DEVSHANS_ID == userID);
     var maxMessageLength = isDevUser ? 50 : 20;
 
+    //fixme - SPS. Make a counter to see if this continues to happen and report user.    
+    // If a user is banned, do not allow them to continue spamming the bot.
     if ((dbUsers[userID] && dbUsers[userID].blocked) && !(isDevUser)) return;
 
     // Alert the user if they enter "!db" as it is a common mistake.
@@ -1212,10 +1274,9 @@ client.on('message', message => {
         }).then(() => {
 
             var sendMessage = `DropBot has been updated to Version ${Constants.MAJOR_VERSION}.${Constants.MINOR_VERSION}\n`;
-            sendMessage += "Updated Fortnite locations.\n";
-	    sendMessage += 'Fixed an issue where using "db!set" and "db!aset" commands were not always saving custom weights.\n';
-            sendMessage += "All custom drop weight percentages have been reset again. Sorry for the inconvenience.\n";
-	    sendMessage += "Post on DropBot support server linked in db!help if you have any issues.";
+            sendMessage += "Added map images and better formatting to drop commands.\n";
+            sendMessage += "Fortnite Drop Locations: Removed Tomato Temple and added Volcano.\n";
+	    sendMessage += 'Post on DropBot support server linked in "db!help" if you have any issues.';
             
             if ((dbGuilds[guildID].majorVersion < Constants.MAJOR_VERSION) ||
                 (dbGuilds[guildID].majorVersion == Constants.MAJOR_VERSION &&
@@ -1343,13 +1404,20 @@ client.on('message', message => {
 	return;
         
     }
-
+    
+    //fixme - SPS. Only send so many messages to each blocked user.
+    //  At some point, we have to ignore them. Counter can be reset at bot restart.
     if (STRIKE_SYSTEM_ENABLED) {
 	if (dbUsers[userID].blocked || dbUsers[userID].strikes == Constants.USER_MAX_STRIKES) {
 
             if (dbUsers[userID].blocked == false) {
 		dbUsers[userID].blocked  = true;
-		dbAWS.updateUser(dbUsers[userID]); 
+		dbAWS.updateUser(dbUsers[userID]).then(result => {
+                    console.log("Successfully updated user block status in database.");
+                    //fixme - SPS. Should use ShardClientUtil.broadcastEval() to alert all shards of a user being blocked.
+                }).catch((err) => {
+                    console.error("ERROR updateUser for blocked user: " + err);
+                });
             }
             console.log("BLOCKED: User - " + user + "[" + userID + "] due to max strikes of rate limiting.");
             message.reply("You have been blocked due to rate limiting.\n" +

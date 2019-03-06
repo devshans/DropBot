@@ -4,6 +4,11 @@
     "tokenDev"    : "<Discord bot development token>",
     "dblToken"    : "<Discord Bot Lists token>",
     "donateURL"   : "<PayPal URL for donations>",
+    "sfxPrefixFN" : "<Absolute Path>",
+    "sfxPrefixAL" : "<Absolute Path>",
+    "mapPrefixFN" : "<Absolute Path>",
+    "mapPrefixAL" : "<Absolute Path>",
+    "logoPrefix"  : "<Absolute Path>",
     "webhookAuth" : "<Webhook password>",
-    "webhookPort" : <Webhook server port>    
+    "webhookPort" : <Webhook server port>
 }

@@ -7,14 +7,7 @@
 */
 
 const MAJOR_VERSION = 9;
-const MINOR_VERSION = 2;
-
-// Intro sound file list
-const dropIntros = [
-     'intro.wav'
-    ,'intro2.wav'
-    ,'intro3.wav'
-];
+const MINOR_VERSION = 3;
 
 const DEFAULT_WEIGHT    = 5;
 const NUM_LOCATIONS_MAX = 50
@@ -43,7 +36,7 @@ var dropLocationNamesFN = [
     ,"Sunny Steps"
     ,"The Block"
     ,"Tilted Towers"
-    ,"Tomato Temple"    
+    ,"Volcano"    
 ];
 
 // Apex specific stuff
@@ -69,8 +62,8 @@ var dropLocationNamesAL = [
 
 // Initialize arrays of default weights
 var defaultWeightsMax = [];
-var defaultWeightsFN = [];
-var defaultWeightsAL = [];
+var defaultWeightsFN  = [];
+var defaultWeightsAL  = [];
 
 for (var i = 0; i < NUM_LOCATIONS_MAX; i++) {
     defaultWeightsMax.push({
@@ -103,7 +96,6 @@ module.exports = {
     NUM_LOCATIONS_FN : NUM_LOCATIONS_FN,
     NUM_LOCATIONS_AL : NUM_LOCATIONS_AL,
     
-    dropIntros          : dropIntros,
     dropLocationNamesFN : dropLocationNamesFN,
     dropLocationNamesAL : dropLocationNamesAL,
 

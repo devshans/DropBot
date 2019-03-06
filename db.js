@@ -432,7 +432,7 @@ var updateGuildAll = async function(dropBotGuild) {
 
 };
 
-
+//fixme - SPS. This needs to be udpated to fill all 50 weights. see other file
 var updateGuildDropsFN = async function(dropBotGuild) {
 
     return new Promise(function(resolve, reject) {
