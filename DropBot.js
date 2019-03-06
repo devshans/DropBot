@@ -1,7 +1,7 @@
 /*
     @document   : DropBot.js
     @author     : devshans
-    @version    : 9.3.0
+    @version    : 9.4.0
     @copyright  : 2019, devshans
     @license    : The MIT License (MIT) - see LICENSE
     @repository : https://github.com/devshans/DropBot
@@ -288,7 +288,6 @@ async function playDropLocation(isFortnite, message, guildMember) {
     let dropLocationAudioFile = dropLocation.split(' ').join('_').toLowerCase() + '.wav';
     let dropLocationMapFile   = dropLocation.split(' ').join('_').toLowerCase() + '.png';
 
-    //fixme - SPS. Host images on AWS S3 and use URL instead of encoding locally.
     const embed = {
 	"title": "*** " + dropLocation + " *** - **" + dropChance + "% Chance**",
 	"url": "https://discordbots.org/bot/487298106849886224",
@@ -299,10 +298,14 @@ async function playDropLocation(isFortnite, message, guildMember) {
 	    "text": `DropBot Version ${Constants.MAJOR_VERSION}.${Constants.MINOR_VERSION}`
 	},
 	"thumbnail": {
-            "url": "attachment://thumbnail.png"
+            "url": isFortnite ?
+                config.logoPrefix + "dropbot_fortnite.png" :
+                config.logoPrefix + "dropbot_apex.png" ,
 	},
 	"image": {
-	    "url": "attachment://" + dropLocationMapFile
+	    "url": isFortnite ?
+                config.mapPrefixFN + dropLocationMapFile :
+                config.mapPrefixAL + dropLocationMapFile ,
 	},
 	"author": {
 	    "name": message.author.username + " - " + gameName + " Drop Location",
@@ -333,21 +336,6 @@ async function playDropLocation(isFortnite, message, guildMember) {
 	    }
 	]
     };
-
-    const embedFiles = [
-        {
-	    attachment: isFortnite ?
-                config.logoPrefix + 'dropbot_logo.png' : 
-                config.logoPrefix + 'dropbot_apex_2.png',
-	    name: "thumbnail.png"
-        },
-        {
-	    attachment: isFortnite ?
-                config.mapPrefixFN + dropLocationMapFile :
-                config.mapPrefixAL + dropLocationMapFile,
-	    name: dropLocationMapFile
-	}
-    ];
     
 
     let dropMessageDelay = (dbGuilds[guildID].audioMute && ! (guildMember.voiceChannel)) ? 1000 : 3000;
@@ -359,12 +347,8 @@ async function playDropLocation(isFortnite, message, guildMember) {
     });
     
     setTimeout(function() {
-        message.channel.send({
-	    embed,
-            files: embedFiles
-        });
+        message.channel.send({embed});
     }, dropMessageDelay);
-    
     
     if (dbGuilds[guildID].audioMute) {           
 
@@ -1004,8 +988,8 @@ async function handleCommand(args, message) {
 	sendMessage(messageContent, message.channel);
 
 	sendMessage("```" + dbGuilds[guildID].headerString()     + "```", message.channel);
-	sendMessage("```" + dbGuilds[guildID].fortniteToString() + "```", message.channel, {delay: 200});
-	sendMessage("```" + dbGuilds[guildID].apexToString()     + "```", message.channel, {delay: 400});
+	sendMessage("```" + dbGuilds[guildID].gameHeaderString() + dbGuilds[guildID].gameTable() + "```", message.channel);
+
         break;
               
     case 'reset':
@@ -1015,8 +999,7 @@ async function handleCommand(args, message) {
         dbAWS.resetGuild(dbGuilds[guildID]).then(dropBotGuild => {
             dbGuilds[guildID] = dropBotGuild;
 	    sendMessage("```" + dbGuilds[guildID].headerString()     + "```", message.channel);
-	    sendMessage("```" + dbGuilds[guildID].fortniteToString() + "```", message.channel, {delay: 200});
-	    sendMessage("```" + dbGuilds[guildID].apexToString()     + "```", message.channel, {delay: 400});
+	    sendMessage("```" + dbGuilds[guildID].gameHeaderString() + dbGuilds[guildID].gameTable() + "```", message.channel);
         }).catch((e) => {
             console.error("ERROR updateGuildDrops: " + e);
         });
@@ -1274,6 +1257,7 @@ client.on('message', message => {
         }).then(() => {
 
             var sendMessage = `DropBot has been updated to Version ${Constants.MAJOR_VERSION}.${Constants.MINOR_VERSION}\n`;
+            sendMessage += 'Condensed formatting of "db!settings" and "db!reset" commands.\n';
             sendMessage += "Added map images and better formatting to drop commands.\n";
             sendMessage += "Fortnite Drop Locations: Removed Tomato Temple and added Volcano.\n";
 	    sendMessage += 'Post on DropBot support server linked in "db!help" if you have any issues.';

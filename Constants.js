@@ -7,7 +7,7 @@
 */
 
 const MAJOR_VERSION = 9;
-const MINOR_VERSION = 3;
+const MINOR_VERSION = 4;
 
 const DEFAULT_WEIGHT    = 5;
 const NUM_LOCATIONS_MAX = 50
