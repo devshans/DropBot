@@ -33,7 +33,7 @@ Optional features:
   usage: db![option]
 
 db![option]         Description
--------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------
 db!drop  /  db!   : Uses the default game location for randomly choosing a drop location. Change with "db!default"
 db!default [game] : Sets the default game for "db!drop" and "db!" commands. Legal options are "apex" and "fortnite".
 db!fortnite       : Randomly choose a Fortnite location to drop based on server settings.
@@ -48,8 +48,8 @@ db!help           : Show this help message again.
 db!donate         : Get link to donate to help support bot development and hosting fees.
 db!vote           : Check and update vote status for bot within the last 24 hours without rate limit penalty.
 db!set  [ID] [Wt] : Change the percentage chance of choosing each Fortnite location. Use "db!set help" for more info.
-db!aset [ID] [Wt] : Change the percentage chance of choosing each Apex Legends location. Use "db!set help" for more info.
--------------------------------------------------------------------------------------------------------------------
+db!aset [ID] [Wt] : Change the percentage chance of choosing each Apex Legends location. Use "db!aset help" for more info.
+--------------------------------------------------------------------------------------------------------------------------
 
 db!set help / db!aset help
 
